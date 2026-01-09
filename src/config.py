@@ -4,15 +4,19 @@ Configurações do Projeto - Classificação de Imagens
 """
 
 import os
+from pathlib import Path
+
+# Diretório raiz do projeto
+ROOT_DIR = Path(__file__).parent.parent.absolute()
 
 # Configuração de dispositivo (CPU ou GPU)
 USE_GPU = True  # Altere para False para usar CPU
 
 # Configurações da base de dados
-DATA_DIR = 'data'
-TRAIN_DIR = os.path.join(DATA_DIR, 'train')
-TEST_DIR = os.path.join(DATA_DIR, 'test')
-VAL_DIR = os.path.join(DATA_DIR, 'val')
+DATA_DIR = ROOT_DIR / 'data'
+TRAIN_DIR = DATA_DIR / 'train'
+TEST_DIR = DATA_DIR / 'test'
+VAL_DIR = DATA_DIR / 'val'
 
 # Configurações do dataset Kaggle
 KAGGLE_DATASET = "hassnainzaidi/ai-art-vs-human-art"
@@ -45,12 +49,11 @@ USE_HYPEROPT = True
 HYPEROPT_TRIALS = 20  # Número de tentativas para otimização
 
 # Diretórios de saída
-OUTPUT_DIR = 'outputs'
-MODELS_DIR = os.path.join(OUTPUT_DIR, 'models')
-RESULTS_DIR = os.path.join(OUTPUT_DIR, 'results')
-FIGURES_DIR = os.path.join(OUTPUT_DIR, 'figures')
+OUTPUT_DIR = ROOT_DIR / 'outputs'
+MODELS_DIR = OUTPUT_DIR / 'models'
+RESULTS_DIR = OUTPUT_DIR / 'results'
+FIGURES_DIR = OUTPUT_DIR / 'figures'
 
 # Criar diretórios se não existirem
-for dir_path in [OUTPUT_DIR, MODELS_DIR, RESULTS_DIR, FIGURES_DIR]:
-    os.makedirs(dir_path, exist_ok=True)
-
+for dir_path in [DATA_DIR, OUTPUT_DIR, MODELS_DIR, RESULTS_DIR, FIGURES_DIR]:
+    dir_path.mkdir(parents=True, exist_ok=True)

@@ -6,25 +6,43 @@ Projeto completo de classificação de imagens utilizando pipelines clássico e 
 
 ```
 .
-├── config.py                    # Configurações do projeto
-├── utils.py                     # Funções utilitárias
-├── pipeline_classico.py         # Pipeline clássico (SVM, Regressão Logística)
-├── pipeline_deep_learning.py   # Pipeline deep learning (CNN, ResNet)
-├── main.py                      # Script principal
-├── exemplo_uso.py               # Script auxiliar para estrutura de dados
-├── download_dataset.py          # Script para baixar dataset do Kaggle
+├── main.py                      # Ponto de entrada principal
 ├── requirements.txt             # Dependências
-├── data/                        # Dados (criar manualmente)
+├── README.md                    # Documentação
+├── .gitignore                   # Arquivos ignorados pelo git
+│
+├── src/                         # Código fonte principal
+│   ├── __init__.py
+│   ├── config.py                # Configurações do projeto
+│   ├── utils.py                 # Funções utilitárias
+│   │
+│   ├── models/                  # Definições de modelos
+│   │   ├── __init__.py
+│   │   └── cnn.py               # Arquitetura CNN
+│   │
+│   └── pipelines/               # Pipelines de treinamento
+│       ├── __init__.py
+│       ├── classic.py           # Pipeline clássico (SVM, Random Forest)
+│       └── deep_learning.py     # Pipeline deep learning (CNN, ResNet)
+│
+├── scripts/                     # Scripts auxiliares
+│   ├── __init__.py
+│   └── download_dataset.py      # Download do dataset Kaggle
+│
+├── notebooks/                   # Jupyter notebooks (exploração)
+├── tests/                       # Testes unitários
+├── docs/                        # Documentação adicional
+│
+├── data/                        # Dados (ignorado pelo git)
 │   ├── train/                   # Imagens de treinamento
 │   │   ├── classe1/
-│   │   ├── classe2/
-│   │   └── ...
+│   │   └── classe2/
 │   └── test/                    # Imagens de teste
 │       ├── classe1/
-│       ├── classe2/
-│       └── ...
-└── outputs/                     # Resultados (criado automaticamente)
-    ├── models/                  # Modelos treinados
+│       └── classe2/
+│
+└── outputs/                     # Resultados (ignorado pelo git)
+    ├── models/                  # Modelos treinados (.pkl, .pth)
     ├── results/                 # Resultados em CSV
     └── figures/                 # Gráficos e visualizações
 ```
@@ -112,7 +130,7 @@ Se preferir usar seus próprios dados, organize no formato:
 Se você ainda não tem os dados organizados:
 
 ```bash
-python download_dataset.py
+python scripts/download_dataset.py
 ```
 
 O script irá baixar e organizar automaticamente o dataset do Kaggle.
@@ -128,17 +146,10 @@ python main.py
 Se os dados não estiverem organizados, o script oferecerá a opção de baixar automaticamente.
 
 Escolha uma das opções:
-1. Pipeline Clássico
-2. Pipeline Deep Learning
+1. Pipeline Clássico (SVM + Random Forest)
+2. Pipeline Deep Learning (CNN + ResNet)
 3. Ambos os pipelines
-
-### Outros Scripts Úteis
-
-Para criar a estrutura de diretórios manualmente:
-
-```bash
-python exemplo_uso.py
-```
+4. Sair
 
 ## Contextualização da Base de Dados
 
@@ -272,13 +283,13 @@ O código imprime automaticamente:
 
 1. **Support Vector Machine (SVM)**
    - Kernel: RBF, Linear, Polinomial
-   - Otimização: Grid Search
-   - Parâmetros otimizados: C, gamma, kernel
+   - Otimização: Random Search (50 iterações)
+   - Parâmetros otimizados: C, gamma, kernel, degree, class_weight
 
-2. **Regressão Logística (Logistic Regression)**
-   - Regularização: L1, L2, Elastic Net
-   - Otimização: Grid Search
-   - Parâmetros otimizados: C, penalty, solver, max_iter
+2. **Random Forest**
+   - Ensemble de árvores de decisão
+   - Otimização: Random Search (50 iterações)
+   - Parâmetros otimizados: n_estimators, max_depth, min_samples_split, min_samples_leaf, max_features, bootstrap, class_weight
 
 ### Transformações Aplicadas
 
@@ -298,20 +309,23 @@ O código imprime automaticamente:
 
 3. **Valores dos Parâmetros**
 
-**SVM (Grid Search):**
-- C: [0.1, 1, 10, 100]
-- gamma: ['scale', 'auto', 0.001, 0.01]
+**SVM (Random Search - 50 iterações):**
+- C: log-uniform [0.01, 100]
+- gamma: log-uniform [0.0001, 1]
 - kernel: ['rbf', 'linear', 'poly']
+- degree: randint [2, 5] (para kernel poly)
+- class_weight: [None, 'balanced']
 - Validação cruzada: 3 folds
 
-**Regressão Logística (Grid Search):**
-- C: [0.001, 0.01, 0.1, 1, 10, 100] (força de regularização)
-- penalty: ['l1', 'l2', 'elasticnet'] (tipo de regularização)
-- solver: ['lbfgs', 'liblinear', 'saga'] (algoritmo de otimização)
-- max_iter: [100, 500, 1000] (número máximo de iterações)
-- l1_ratio: [0.1, 0.3, 0.5, 0.7, 0.9] (apenas para elasticnet)
+**Random Forest (Random Search - 50 iterações):**
+- n_estimators: randint [50, 300]
+- max_depth: [None, 10, 20, 30, 50]
+- min_samples_split: randint [2, 20]
+- min_samples_leaf: randint [1, 10]
+- max_features: ['sqrt', 'log2', None]
+- bootstrap: [True, False]
+- class_weight: [None, 'balanced', 'balanced_subsample']
 - Validação cruzada: 3 folds
-- **Nota**: Grid Search ajustado para combinações válidas de penalty/solver
 
 ### Métricas Utilizadas
 
@@ -327,14 +341,15 @@ O código imprime automaticamente:
 
 1. **CNN Simples (sem Transfer Learning)**
    - Arquitetura: 3 camadas convolucionais + 2 camadas fully connected
-   - Parâmetros: ~2.5 milhões
+   - Parâmetros: ~2.5 milhões (variável conforme hidden_units)
    - Treinamento do zero
+   - Otimização: Random Search (10 iterações)
 
 2. **ResNet50 (com Transfer Learning)**
-   - Base pré-treinada: ImageNet
-   - Camadas convolucionais: Congeladas
+   - Base pré-treinada: ImageNet (IMAGENET1K_V2)
+   - Camadas convolucionais: Congeladas (configurável)
    - Camada final: Substituída e treinada
-   - Parâmetros treináveis: Apenas camada final
+   - Otimização: Random Search (10 iterações)
 
 ### Configuração de Treinamento
 
@@ -364,25 +379,31 @@ Valores de normalização ImageNet:
 - Mean: [0.485, 0.456, 0.406]
 - Std: [0.229, 0.224, 0.225]
 
-### Otimização de Hiperparâmetros
+### Otimização de Hiperparâmetros (Random Search)
 
-**Justificativa da Não Aplicação em Deep Learning:**
+**CNN Simples (Random Search - 10 iterações):**
+- learning_rate: log-uniform [0.0001, 0.01]
+- batch_size: [16, 32, 64]
+- dropout_rate: uniform [0.3, 0.7]
+- hidden_units: [256, 512, 1024]
+- Validação: 20% split com early stopping (patience=5)
+- Épocas de busca: 15 (reduzidas para eficiência)
 
-Para este projeto, não foi aplicada otimização sistemática de hiperparâmetros nos modelos de deep learning pelas seguintes razões:
+**ResNet50 (Random Search - 10 iterações):**
+- learning_rate: log-uniform [0.00001, 0.001]
+- batch_size: [16, 32, 64]
+- unfreeze_layers: [0, 1, 2] (quantidade de camadas a descongelar)
+  - 0: apenas camada FC
+  - 1: FC + layer4
+  - 2: FC + layer4 + layer3
+- Validação: 20% split com early stopping (patience=5)
+- Épocas de busca: 10 (reduzidas para eficiência)
 
-1. **Custo Computacional**: Otimização de hiperparâmetros em deep learning requer múltiplos treinamentos completos, o que é computacionalmente muito custoso.
-
-2. **Parâmetros Padrão Eficazes**: Os valores utilizados (learning rate=0.001, batch size=32, Adam optimizer) são amplamente testados e funcionam bem para a maioria dos casos.
-
-3. **Learning Rate Scheduler**: O uso de ReduceLROnPlateau já otimiza automaticamente a taxa de aprendizado durante o treinamento.
-
-4. **Transfer Learning**: O ResNet50 já vem com pesos otimizados do ImageNet, reduzindo a necessidade de ajuste fino de hiperparâmetros.
-
-**Alternativa (se necessário):**
-Para otimização futura, pode-se usar:
-- Optuna para busca bayesiana
-- Grid Search em subconjunto de parâmetros (learning rate, batch size)
-- Early stopping para evitar overfitting
+**Vantagens do Random Search:**
+1. Mais eficiente que Grid Search para espaços de alta dimensão
+2. Permite explorar distribuições contínuas (log-uniform)
+3. Early stopping reduz tempo de busca
+4. Validação split garante seleção não enviesada de hiperparâmetros
 
 ### Escolha CPU/GPU
 
@@ -404,10 +425,10 @@ Os resultados são salvos automaticamente em:
 
 | Modelo | Acurácia | Precisão | Recall | F1-Score | Otimização | Transfer Learning |
 |--------|----------|----------|--------|----------|------------|-------------------|
-| SVM | 0.8500 | 0.8520 | 0.8500 | 0.8500 | Grid Search | - |
-| Regressão Logística | 0.8500 | 0.8520 | 0.8500 | 0.8500 | Grid Search | - |
-| CNN Simples | 0.8800 | 0.8820 | 0.8800 | 0.8800 | - | Não |
-| ResNet50 | 0.9500 | 0.9520 | 0.9500 | 0.9500 | - | Sim |
+| SVM | 0.8500 | 0.8520 | 0.8500 | 0.8500 | Random Search (50 iter) | - |
+| Random Forest | 0.8700 | 0.8720 | 0.8700 | 0.8700 | Random Search (50 iter) | - |
+| CNN Simples | 0.8800 | 0.8820 | 0.8800 | 0.8800 | Random Search (10 iter) | Não |
+| ResNet50 | 0.9500 | 0.9520 | 0.9500 | 0.9500 | Random Search (10 iter) | Sim |
 
 ### Visualizações Geradas
 
@@ -421,13 +442,20 @@ Os resultados são salvos automaticamente em:
 
 **Pipeline Clássico:**
 - SVM geralmente apresenta melhor performance para dados de alta dimensionalidade
-- Regressão Logística é interpretável e eficiente para classificação binária/multiclasse
-- Ambos são rápidos para treinar mas limitados por features manuais
+- Random Forest é robusto, interpretável e lida bem com dados desbalanceados
+- Ambos usam Random Search para encontrar hiperparâmetros ótimos
 
 **Pipeline Deep Learning:**
 - CNN Simples aprende features automaticamente mas requer mais dados
 - ResNet50 com transfer learning aproveita conhecimento pré-treinado
+- Random Search otimiza hiperparâmetros de forma eficiente
 - Deep learning geralmente supera métodos clássicos com dados suficientes
+
+**Comparação de Otimização (Random Search):**
+- Todos os 4 modelos utilizam Random Search para otimização de hiperparâmetros
+- Permite comparação justa entre modelos clássicos e deep learning
+- Pipeline clássico: 50 iterações (mais rápido por modelo)
+- Pipeline deep learning: 10 iterações (mais custoso por iteração)
 
 ## Conclusão
 
@@ -443,9 +471,9 @@ Os resultados são salvos automaticamente em:
    - **Validação robusta**: Tratamento de imagens corrompidas ou inválidas
 
 2. **Otimização de Hiperparâmetros**
-   - Grid Search é computacionalmente custoso
-   - Trade-off entre tempo e qualidade
-   - Validação cruzada requer dados suficientes
+   - Random Search mais eficiente que Grid Search para espaços grandes
+   - Trade-off entre número de iterações e qualidade dos resultados
+   - Validação cruzada/split requer dados suficientes
 
 3. **Deep Learning**
    - Requer GPU para treinamento eficiente
@@ -502,15 +530,16 @@ Se houvesse mais tempo para desenvolvimento:
 pip install -r requirements.txt
 
 # 2. Baixar e organizar dataset do Kaggle
-python download_dataset.py
+python scripts/download_dataset.py
 
 # 3. Executar pipeline
 python main.py
 
-# 4. Escolher opção (1, 2 ou 3)
-#    1. Pipeline Clássico
-#    2. Pipeline Deep Learning
+# 4. Escolher opção (1, 2, 3 ou 4)
+#    1. Pipeline Clássico (SVM + Random Forest)
+#    2. Pipeline Deep Learning (CNN + ResNet)
 #    3. Ambos os pipelines
+#    4. Sair
 
 # 5. Ver resultados
 # - outputs/results/classic_pipeline_results.csv
