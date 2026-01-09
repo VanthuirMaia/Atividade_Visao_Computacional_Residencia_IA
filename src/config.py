@@ -48,6 +48,32 @@ AUGMENTATION_PARAMS = {
 USE_HYPEROPT = True
 HYPEROPT_TRIALS = 20  # Número de tentativas para otimização
 
+# ============================================
+# CONFIGURAÇÕES DE GERENCIAMENTO DE MEMÓRIA
+# ============================================
+
+# Usar lazy loading (carrega imagens sob demanda)
+USE_LAZY_LOADING = True
+
+# Tamanho do cache de imagens (0 = sem cache)
+IMAGE_CACHE_SIZE = 100
+
+# Batch size mínimo (para adaptive batch size)
+MIN_BATCH_SIZE = 4
+
+# Limites de memória para alertas
+MEMORY_WARNING_THRESHOLD = 0.8   # 80% de uso
+MEMORY_CRITICAL_THRESHOLD = 0.9  # 90% de uso
+
+# Fator de segurança para cálculo de batch size
+MEMORY_SAFETY_FACTOR = 0.7
+
+# Limpar memória a cada N batches durante treinamento
+CLEAR_MEMORY_EVERY_N_BATCHES = 50
+
+# Usar mixed precision (float16) para economizar memória GPU
+USE_MIXED_PRECISION = False
+
 # Diretórios de saída
 OUTPUT_DIR = ROOT_DIR / 'outputs'
 MODELS_DIR = OUTPUT_DIR / 'models'

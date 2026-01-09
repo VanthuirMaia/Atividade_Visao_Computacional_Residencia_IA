@@ -2,6 +2,7 @@
 """
 Pipeline Deep Learning - Classificação de Imagens
 Aplica modelos de deep learning com e sem transfer learning
+Com suporte a lazy loading e gerenciamento de memória
 """
 
 import numpy as np
@@ -14,13 +15,21 @@ from torchvision import transforms, models
 
 from ..config import (
     MODELS_DIR, RESULTS_DIR, FIGURES_DIR, BATCH_SIZE, EPOCHS,
-    LEARNING_RATE, USE_AUGMENTATION, AUGMENTATION_PARAMS, IMG_SIZE
+    LEARNING_RATE, USE_AUGMENTATION, AUGMENTATION_PARAMS, IMG_SIZE,
+    USE_LAZY_LOADING, IMAGE_CACHE_SIZE, MIN_BATCH_SIZE,
+    MEMORY_WARNING_THRESHOLD, MEMORY_CRITICAL_THRESHOLD,
+    CLEAR_MEMORY_EVERY_N_BATCHES
 )
 from ..utils import (
     load_images_from_directory, calculate_metrics, plot_confusion_matrix,
     save_results_table, print_results_summary, setup_device
 )
 from ..models import SimpleCNN
+from ..memory import (
+    MemoryMonitor, clear_memory, AdaptiveBatchSize,
+    estimate_memory_usage, check_available_memory
+)
+from ..datasets import LazyImageDataset, create_lazy_dataloaders
 
 
 class ImageDataset(Dataset):
@@ -77,9 +86,10 @@ def sample_hyperparameters(param_space):
 class DeepLearningPipeline:
     """
     Pipeline de deep learning para classificação de imagens
+    Com suporte a lazy loading e gerenciamento de memória
     """
 
-    def __init__(self, train_dir, test_dir, val_dir=None, use_gpu=True):
+    def __init__(self, train_dir, test_dir, val_dir=None, use_gpu=True, use_lazy_loading=None):
         """
         Inicializa o pipeline
 
@@ -88,12 +98,29 @@ class DeepLearningPipeline:
             test_dir: Diretório de teste
             val_dir: Diretório de validação (opcional)
             use_gpu: Se True, usa GPU se disponível
+            use_lazy_loading: Se True, carrega imagens sob demanda (None = usa config)
         """
         self.train_dir = train_dir
         self.test_dir = test_dir
         self.val_dir = val_dir
         self.device = setup_device(use_gpu)
         self.results = []
+
+        # Configurações de memória
+        self.use_lazy_loading = use_lazy_loading if use_lazy_loading is not None else USE_LAZY_LOADING
+        self.memory_monitor = MemoryMonitor(
+            warning_threshold=MEMORY_WARNING_THRESHOLD,
+            critical_threshold=MEMORY_CRITICAL_THRESHOLD
+        )
+        self.adaptive_batch = AdaptiveBatchSize(
+            initial_batch_size=BATCH_SIZE,
+            min_batch_size=MIN_BATCH_SIZE
+        )
+
+        # Mostrar status inicial de memória
+        print("\n--- Inicialização do Pipeline ---")
+        self.memory_monitor.print_status()
+        print(f"Lazy Loading: {'Ativado' if self.use_lazy_loading else 'Desativado'}")
 
     def get_transforms(self, is_training=False):
         """
@@ -137,7 +164,108 @@ class DeepLearningPipeline:
     def load_data(self):
         """
         Carrega e prepara os dados
+        Usa lazy loading se configurado para economizar memória
         """
+        # Verificar memória disponível
+        self.memory_monitor.check_memory("Antes de carregar dados")
+
+        if self.use_lazy_loading:
+            print("\n[LAZY LOADING] Carregando metadados das imagens...")
+            self._load_data_lazy()
+        else:
+            print("\n[MODO PADRÃO] Carregando todas as imagens na memória...")
+            self._load_data_standard()
+
+        # Verificar memória após carregamento
+        self.memory_monitor.check_memory("Após carregar dados")
+        clear_memory()
+
+    def _load_data_lazy(self):
+        """
+        Carrega dados usando lazy loading (apenas metadados na memória)
+        """
+        from pathlib import Path
+
+        # Descobrir classes e caminhos
+        self.class_names = sorted([
+            d.name for d in Path(self.train_dir).iterdir() if d.is_dir()
+        ])
+
+        # Coletar caminhos de treinamento
+        self.train_paths = []
+        self.train_labels = []
+        for class_idx, class_name in enumerate(self.class_names):
+            class_dir = Path(self.train_dir) / class_name
+            for img_path in class_dir.iterdir():
+                if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                    self.train_paths.append(img_path)
+                    self.train_labels.append(class_idx)
+
+        # Coletar caminhos de teste
+        self.test_paths = []
+        self.test_labels = []
+        for class_idx, class_name in enumerate(self.class_names):
+            class_dir = Path(self.test_dir) / class_name
+            if class_dir.exists():
+                for img_path in class_dir.iterdir():
+                    if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                        self.test_paths.append(img_path)
+                        self.test_labels.append(class_idx)
+
+        print(f"Classes encontradas: {self.class_names}")
+        print(f"Treinamento: {len(self.train_paths)} imagens (lazy)")
+        print(f"Teste: {len(self.test_paths)} imagens (lazy)")
+        print(f"Tamanho das imagens: {IMG_SIZE} pixels")
+
+        # Criar datasets lazy
+        train_transform = self.get_transforms(is_training=True)
+        test_transform = self.get_transforms(is_training=False)
+
+        train_dataset = LazyImageDataset(
+            self.train_paths, self.train_labels, IMG_SIZE,
+            transform=train_transform, cache_size=IMAGE_CACHE_SIZE
+        )
+        test_dataset = LazyImageDataset(
+            self.test_paths, self.test_labels, IMG_SIZE,
+            transform=test_transform, cache_size=IMAGE_CACHE_SIZE
+        )
+
+        # Criar dataloaders
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0
+        )
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0
+        )
+
+        self.num_classes = len(self.class_names)
+        self._lazy_mode = True
+
+        # Estimar uso de memória se carregasse tudo
+        estimated_gb = estimate_memory_usage(
+            len(self.train_paths) + len(self.test_paths),
+            IMG_SIZE, channels=3, dtype_bytes=1
+        )
+        print(f"Memória economizada (estimativa): {estimated_gb:.2f} GB")
+
+    def _load_data_standard(self):
+        """
+        Carrega dados no modo padrão (todas as imagens na memória)
+        """
+        # Estimar memória necessária antes de carregar
+        # (usando estimativa conservadora)
+        from pathlib import Path
+        train_count = sum(1 for _ in Path(self.train_dir).rglob('*.[jJpP][pPnN][gG]*'))
+        test_count = sum(1 for _ in Path(self.test_dir).rglob('*.[jJpP][pPnN][gG]*'))
+
+        estimated_gb = estimate_memory_usage(
+            train_count + test_count, IMG_SIZE, channels=3, dtype_bytes=4
+        )
+
+        if not check_available_memory(estimated_gb):
+            print(f"AVISO: Memória estimada ({estimated_gb:.2f} GB) pode exceder disponível!")
+            print("Considere usar USE_LAZY_LOADING = True no config.py")
+
         print("Carregando dados de treinamento...")
         X_train, y_train, self.class_names = load_images_from_directory(
             self.train_dir, img_size=IMG_SIZE
@@ -176,38 +304,73 @@ class DeepLearningPipeline:
         )
 
         self.num_classes = len(self.class_names)
-        print(f"Número de classes: {self.num_classes}")
+        self._lazy_mode = False
 
     def create_dataloaders(self, batch_size, val_split=0.2):
         """
         Cria dataloaders com batch size específico e split de validação
+        Suporta tanto modo lazy quanto modo padrão
         """
         train_transform = self.get_transforms(is_training=True)
         test_transform = self.get_transforms(is_training=False)
 
-        full_train_dataset = ImageDataset(
-            self.X_train_raw, self.y_train_raw, transform=train_transform
-        )
+        if getattr(self, '_lazy_mode', False):
+            # Modo lazy loading
+            from pathlib import Path
+            import random as py_random
 
-        # Split treino/validação
-        val_size = int(len(full_train_dataset) * val_split)
-        train_size = len(full_train_dataset) - val_size
+            # Criar índices e fazer split
+            indices = list(range(len(self.train_paths)))
+            py_random.seed(42)
+            py_random.shuffle(indices)
 
-        train_dataset, val_dataset = random_split(
-            full_train_dataset, [train_size, val_size],
-            generator=torch.Generator().manual_seed(42)
-        )
+            val_size = int(len(indices) * val_split)
+            train_indices = indices[val_size:]
+            val_indices = indices[:val_size]
 
-        # Dataset de validação usa transformações de teste
-        val_dataset_proper = ImageDataset(
-            self.X_train_raw, self.y_train_raw, transform=test_transform
-        )
-        val_indices = val_dataset.indices
-        val_dataset = torch.utils.data.Subset(val_dataset_proper, val_indices)
+            # Criar datasets lazy com subconjuntos
+            train_paths_sub = [self.train_paths[i] for i in train_indices]
+            train_labels_sub = [self.train_labels[i] for i in train_indices]
+            val_paths_sub = [self.train_paths[i] for i in val_indices]
+            val_labels_sub = [self.train_labels[i] for i in val_indices]
 
-        test_dataset = ImageDataset(
-            self.X_test_raw, self.y_test_raw, transform=test_transform
-        )
+            train_dataset = LazyImageDataset(
+                train_paths_sub, train_labels_sub, IMG_SIZE,
+                transform=train_transform, cache_size=IMAGE_CACHE_SIZE // 2
+            )
+            val_dataset = LazyImageDataset(
+                val_paths_sub, val_labels_sub, IMG_SIZE,
+                transform=test_transform, cache_size=IMAGE_CACHE_SIZE // 2
+            )
+            test_dataset = LazyImageDataset(
+                self.test_paths, self.test_labels, IMG_SIZE,
+                transform=test_transform, cache_size=IMAGE_CACHE_SIZE // 2
+            )
+        else:
+            # Modo padrão
+            full_train_dataset = ImageDataset(
+                self.X_train_raw, self.y_train_raw, transform=train_transform
+            )
+
+            # Split treino/validação
+            val_size = int(len(full_train_dataset) * val_split)
+            train_size = len(full_train_dataset) - val_size
+
+            train_dataset, val_dataset = random_split(
+                full_train_dataset, [train_size, val_size],
+                generator=torch.Generator().manual_seed(42)
+            )
+
+            # Dataset de validação usa transformações de teste
+            val_dataset_proper = ImageDataset(
+                self.X_train_raw, self.y_train_raw, transform=test_transform
+            )
+            val_indices = val_dataset.indices
+            val_dataset = torch.utils.data.Subset(val_dataset_proper, val_indices)
+
+            test_dataset = ImageDataset(
+                self.X_test_raw, self.y_test_raw, transform=test_transform
+            )
 
         train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
@@ -276,7 +439,7 @@ class DeepLearningPipeline:
 
     def train_model(self, model, train_loader, epochs, learning_rate, model_name):
         """
-        Treina um modelo
+        Treina um modelo com gerenciamento de memória
         """
         model = model.to(self.device)
         criterion = nn.CrossEntropyLoss()
@@ -286,6 +449,7 @@ class DeepLearningPipeline:
         )
 
         history = {'train_loss': [], 'train_acc': []}
+        batch_count = 0
 
         for epoch in range(epochs):
             model.train()
@@ -294,26 +458,45 @@ class DeepLearningPipeline:
             total = 0
 
             for images, labels in train_loader:
-                images = images.to(self.device)
-                labels = labels.to(self.device)
+                try:
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
 
-                optimizer.zero_grad()
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
+                    optimizer.zero_grad()
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
 
-                running_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                    running_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
 
-            epoch_loss = running_loss / len(train_loader)
-            epoch_acc = correct / total
+                    batch_count += 1
+
+                    # Limpeza periódica de memória
+                    if batch_count % CLEAR_MEMORY_EVERY_N_BATCHES == 0:
+                        clear_memory(clear_gpu=True)
+
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower():
+                        print(f"\nAVISO: Erro de memória no batch. Limpando cache...")
+                        clear_memory(clear_gpu=True)
+                        # Tentar continuar com o próximo batch
+                        continue
+                    else:
+                        raise
+
+            epoch_loss = running_loss / max(len(train_loader), 1)
+            epoch_acc = correct / max(total, 1)
             history['train_loss'].append(epoch_loss)
             history['train_acc'].append(epoch_acc)
 
             scheduler.step(epoch_loss)
+
+            # Limpeza de memória ao final de cada época
+            clear_memory(clear_gpu=True)
 
             if (epoch + 1) % 5 == 0:
                 print(f"Época [{epoch+1}/{epochs}] - Loss: {epoch_loss:.4f}, Acc: {epoch_acc:.4f}")
