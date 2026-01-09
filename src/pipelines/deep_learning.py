@@ -166,6 +166,21 @@ class DeepLearningPipeline:
         Carrega e prepara os dados
         Usa lazy loading se configurado para economizar memória
         """
+        # Validar diretórios
+        from pathlib import Path
+        train_dir = Path(self.train_dir)
+        test_dir = Path(self.test_dir)
+        
+        if not train_dir.exists():
+            raise ValueError(f"Diretório de treinamento não encontrado: {train_dir}")
+        if not test_dir.exists():
+            raise ValueError(f"Diretório de teste não encontrado: {test_dir}")
+        
+        # Verificar se há subpastas com classes
+        train_classes = [d for d in train_dir.iterdir() if d.is_dir()]
+        if not train_classes:
+            raise ValueError(f"Nenhuma classe encontrada em {train_dir}")
+        
         # Verificar memória disponível
         self.memory_monitor.check_memory("Antes de carregar dados")
 
@@ -187,30 +202,45 @@ class DeepLearningPipeline:
         from pathlib import Path
 
         # Descobrir classes e caminhos
+        train_dir = Path(self.train_dir)
         self.class_names = sorted([
-            d.name for d in Path(self.train_dir).iterdir() if d.is_dir()
+            d.name for d in train_dir.iterdir() if d.is_dir()
         ])
+        
+        if not self.class_names:
+            raise ValueError(f"Nenhuma classe encontrada em {train_dir}")
 
         # Coletar caminhos de treinamento
         self.train_paths = []
         self.train_labels = []
         for class_idx, class_name in enumerate(self.class_names):
-            class_dir = Path(self.train_dir) / class_name
+            class_dir = train_dir / class_name
+            if not class_dir.exists():
+                print(f"AVISO: Diretório de classe não encontrado: {class_dir}")
+                continue
+            
             for img_path in class_dir.iterdir():
-                if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                if img_path.is_file() and img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
                     self.train_paths.append(img_path)
                     self.train_labels.append(class_idx)
 
+        if not self.train_paths:
+            raise ValueError(f"Nenhuma imagem encontrada em {train_dir}")
+
         # Coletar caminhos de teste
+        test_dir = Path(self.test_dir)
         self.test_paths = []
         self.test_labels = []
         for class_idx, class_name in enumerate(self.class_names):
-            class_dir = Path(self.test_dir) / class_name
+            class_dir = test_dir / class_name
             if class_dir.exists():
                 for img_path in class_dir.iterdir():
-                    if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                    if img_path.is_file() and img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
                         self.test_paths.append(img_path)
                         self.test_labels.append(class_idx)
+        
+        if not self.test_paths:
+            print(f"AVISO: Nenhuma imagem encontrada em {test_dir}")
 
         print(f"Classes encontradas: {self.class_names}")
         print(f"Treinamento: {len(self.train_paths)} imagens (lazy)")
@@ -310,6 +340,15 @@ class DeepLearningPipeline:
         """
         Cria dataloaders com batch size específico e split de validação
         Suporta tanto modo lazy quanto modo padrão
+        
+        Args:
+            batch_size: Tamanho do batch
+            val_split: Proporção para validação (0.0 = sem validação)
+        
+        Returns:
+            train_loader: DataLoader de treinamento
+            val_loader: DataLoader de validação (None se val_split=0.0)
+            test_loader: DataLoader de teste
         """
         train_transform = self.get_transforms(is_training=True)
         test_transform = self.get_transforms(is_training=False)
@@ -319,54 +358,74 @@ class DeepLearningPipeline:
             from pathlib import Path
             import random as py_random
 
-            # Criar índices e fazer split
+            # Criar índices e fazer split (se necessário)
             indices = list(range(len(self.train_paths)))
             py_random.seed(42)
             py_random.shuffle(indices)
 
-            val_size = int(len(indices) * val_split)
-            train_indices = indices[val_size:]
-            val_indices = indices[:val_size]
+            if val_split > 0.0:
+                val_size = int(len(indices) * val_split)
+                train_indices = indices[val_size:]
+                val_indices = indices[:val_size]
 
-            # Criar datasets lazy com subconjuntos
-            train_paths_sub = [self.train_paths[i] for i in train_indices]
-            train_labels_sub = [self.train_labels[i] for i in train_indices]
-            val_paths_sub = [self.train_paths[i] for i in val_indices]
-            val_labels_sub = [self.train_labels[i] for i in val_indices]
+                # Criar datasets lazy com subconjuntos
+                train_paths_sub = [self.train_paths[i] for i in train_indices]
+                train_labels_sub = [self.train_labels[i] for i in train_indices]
+                val_paths_sub = [self.train_paths[i] for i in val_indices]
+                val_labels_sub = [self.train_labels[i] for i in val_indices]
 
-            train_dataset = LazyImageDataset(
-                train_paths_sub, train_labels_sub, IMG_SIZE,
-                transform=train_transform, cache_size=IMAGE_CACHE_SIZE // 2
-            )
-            val_dataset = LazyImageDataset(
-                val_paths_sub, val_labels_sub, IMG_SIZE,
-                transform=test_transform, cache_size=IMAGE_CACHE_SIZE // 2
-            )
+                train_dataset = LazyImageDataset(
+                    train_paths_sub, train_labels_sub, IMG_SIZE,
+                    transform=train_transform, cache_size=IMAGE_CACHE_SIZE // 2
+                )
+                val_dataset = LazyImageDataset(
+                    val_paths_sub, val_labels_sub, IMG_SIZE,
+                    transform=test_transform, cache_size=IMAGE_CACHE_SIZE // 2
+                )
+            else:
+                # Sem validação - usar todos os dados de treino
+                train_dataset = LazyImageDataset(
+                    self.train_paths, self.train_labels, IMG_SIZE,
+                    transform=train_transform, cache_size=IMAGE_CACHE_SIZE
+                )
+                val_dataset = None
+
             test_dataset = LazyImageDataset(
                 self.test_paths, self.test_labels, IMG_SIZE,
                 transform=test_transform, cache_size=IMAGE_CACHE_SIZE // 2
             )
         else:
-            # Modo padrão
+            # Modo padrão - verificar se dados foram carregados
+            if not hasattr(self, 'X_train_raw') or not hasattr(self, 'X_test_raw'):
+                raise ValueError(
+                    "Dados não carregados! Chame load_data() antes de criar dataloaders. "
+                    "Ou use USE_LAZY_LOADING=True no config.py"
+                )
+
             full_train_dataset = ImageDataset(
                 self.X_train_raw, self.y_train_raw, transform=train_transform
             )
 
-            # Split treino/validação
-            val_size = int(len(full_train_dataset) * val_split)
-            train_size = len(full_train_dataset) - val_size
+            if val_split > 0.0:
+                # Split treino/validação
+                val_size = int(len(full_train_dataset) * val_split)
+                train_size = len(full_train_dataset) - val_size
 
-            train_dataset, val_dataset = random_split(
-                full_train_dataset, [train_size, val_size],
-                generator=torch.Generator().manual_seed(42)
-            )
+                train_dataset, val_dataset_split = random_split(
+                    full_train_dataset, [train_size, val_size],
+                    generator=torch.Generator().manual_seed(42)
+                )
 
-            # Dataset de validação usa transformações de teste
-            val_dataset_proper = ImageDataset(
-                self.X_train_raw, self.y_train_raw, transform=test_transform
-            )
-            val_indices = val_dataset.indices
-            val_dataset = torch.utils.data.Subset(val_dataset_proper, val_indices)
+                # Dataset de validação usa transformações de teste
+                val_dataset_proper = ImageDataset(
+                    self.X_train_raw, self.y_train_raw, transform=test_transform
+                )
+                val_indices = val_dataset_split.indices
+                val_dataset = torch.utils.data.Subset(val_dataset_proper, val_indices)
+            else:
+                # Sem validação - usar todos os dados de treino
+                train_dataset = full_train_dataset
+                val_dataset = None
 
             test_dataset = ImageDataset(
                 self.X_test_raw, self.y_test_raw, transform=test_transform
@@ -375,9 +434,13 @@ class DeepLearningPipeline:
         train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
         )
-        val_loader = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-        )
+        
+        val_loader = None
+        if val_dataset is not None:
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+            )
+        
         test_loader = DataLoader(
             test_dataset, batch_size=batch_size, shuffle=False, num_workers=0
         )
@@ -387,13 +450,29 @@ class DeepLearningPipeline:
     def train_single_config(self, model, train_loader, val_loader, epochs, learning_rate, patience=5):
         """
         Treina modelo com uma configuração específica
+        
+        Args:
+            model: Modelo a ser treinado
+            train_loader: DataLoader de treinamento
+            val_loader: DataLoader de validação (pode ser None se val_split=0.0)
+            epochs: Número de épocas
+            learning_rate: Taxa de aprendizado
+            patience: Paciência para early stopping
+        
+        Returns:
+            best_val_acc: Melhor acurácia de validação (ou treinamento se val_loader=None)
+            model: Modelo treinado
         """
         model = model.to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='max', factor=0.5, patience=3, verbose=False
-        )
+        
+        # Usar scheduler apenas se tiver validação
+        scheduler = None
+        if val_loader is not None:
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode='max', factor=0.5, patience=3, verbose=False
+            )
 
         best_val_acc = 0.0
         epochs_without_improvement = 0
@@ -410,27 +489,49 @@ class DeepLearningPipeline:
                 loss.backward()
                 optimizer.step()
 
-            # Validação
-            model.eval()
-            correct = 0
-            total = 0
-            with torch.no_grad():
-                for images, labels in val_loader:
-                    images = images.to(self.device)
-                    labels = labels.to(self.device)
-                    outputs = model(images)
-                    _, predicted = torch.max(outputs, 1)
-                    total += labels.size(0)
-                    correct += (predicted == labels).sum().item()
+            # Validação (ou usar treinamento se não houver validação)
+            if val_loader is not None:
+                model.eval()
+                correct = 0
+                total = 0
+                with torch.no_grad():
+                    for images, labels in val_loader:
+                        images = images.to(self.device)
+                        labels = labels.to(self.device)
+                        outputs = model(images)
+                        _, predicted = torch.max(outputs, 1)
+                        total += labels.size(0)
+                        correct += (predicted == labels).sum().item()
 
-            val_acc = correct / total
-            scheduler.step(val_acc)
+                val_acc = correct / total
+                if scheduler is not None:
+                    scheduler.step(val_acc)
 
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                epochs_without_improvement = 0
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
             else:
-                epochs_without_improvement += 1
+                # Sem validação - usar acurácia de treinamento
+                model.eval()
+                correct = 0
+                total = 0
+                with torch.no_grad():
+                    for images, labels in train_loader:
+                        images = images.to(self.device)
+                        labels = labels.to(self.device)
+                        outputs = model(images)
+                        _, predicted = torch.max(outputs, 1)
+                        total += labels.size(0)
+                        correct += (predicted == labels).sum().item()
+                
+                train_acc = correct / total
+                if train_acc > best_val_acc:
+                    best_val_acc = train_acc
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
 
             if epochs_without_improvement >= patience:
                 break
@@ -506,7 +607,20 @@ class DeepLearningPipeline:
     def evaluate_model(self, model, test_loader):
         """
         Avalia um modelo
+        
+        Args:
+            model: Modelo a ser avaliado
+            test_loader: DataLoader de teste
+        
+        Returns:
+            metrics: Dicionário com métricas
+            y_true: Labels verdadeiros
+            y_pred: Labels preditos
+            cm: Matriz de confusão
         """
+        if not hasattr(self, 'class_names'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de avaliar.")
+        
         model.eval()
         y_true = []
         y_pred = []
@@ -531,7 +645,16 @@ class DeepLearningPipeline:
     def train_simple_cnn(self, use_random_search=True, n_iter=10, final_epochs=EPOCHS):
         """
         Treina CNN simples sem transfer learning com Random Search
+        
+        Args:
+            use_random_search: Se True, usa Random Search para otimização
+            n_iter: Número de iterações do Random Search
+            final_epochs: Número de épocas para treinamento final
         """
+        # Validar que os dados foram carregados
+        if not hasattr(self, 'class_names'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de treinar.")
+        
         print("\n" + "="*80)
         print("TREINANDO MODELO: CNN Simples (sem Transfer Learning)")
         print("="*80)
@@ -598,16 +721,9 @@ class DeepLearningPipeline:
         )
         print(f"Modelo criado com {sum(p.numel() for p in model.parameters())} parâmetros")
 
-        train_transform = self.get_transforms(is_training=True)
-        test_transform = self.get_transforms(is_training=False)
-        train_dataset = ImageDataset(self.X_train_raw, self.y_train_raw, transform=train_transform)
-        test_dataset = ImageDataset(self.X_test_raw, self.y_test_raw, transform=test_transform)
-
-        final_train_loader = DataLoader(
-            train_dataset, batch_size=best_params['batch_size'], shuffle=True, num_workers=0
-        )
-        final_test_loader = DataLoader(
-            test_dataset, batch_size=best_params['batch_size'], shuffle=False, num_workers=0
+        # Criar dataloaders finais (suporta tanto lazy quanto padrão)
+        final_train_loader, _, final_test_loader = self.create_dataloaders(
+            batch_size=best_params['batch_size'], val_split=0.0
         )
 
         model, history = self.train_model(
@@ -643,7 +759,16 @@ class DeepLearningPipeline:
     def create_resnet_model(self, unfreeze_layers=0):
         """
         Cria modelo ResNet50 com transfer learning
+        
+        Args:
+            unfreeze_layers: Número de camadas para descongelar (0 = apenas FC)
+        
+        Returns:
+            model: Modelo ResNet50 configurado
         """
+        if not hasattr(self, 'num_classes'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de criar modelo.")
+        
         model = models.resnet50(weights='IMAGENET1K_V2')
 
         for param in model.parameters():
@@ -666,7 +791,16 @@ class DeepLearningPipeline:
     def train_resnet_transfer(self, use_random_search=True, n_iter=10, final_epochs=EPOCHS):
         """
         Treina ResNet com transfer learning e Random Search
+        
+        Args:
+            use_random_search: Se True, usa Random Search para otimização
+            n_iter: Número de iterações do Random Search
+            final_epochs: Número de épocas para treinamento final
         """
+        # Validar que os dados foram carregados
+        if not hasattr(self, 'class_names'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de treinar.")
+        
         print("\n" + "="*80)
         print("TREINANDO MODELO: ResNet50 (com Transfer Learning)")
         print("="*80)
@@ -723,16 +857,9 @@ class DeepLearningPipeline:
         print(f"Modelo criado com {sum(p.numel() for p in model.parameters())} parâmetros")
         print(f"Parâmetros treináveis: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-        train_transform = self.get_transforms(is_training=True)
-        test_transform = self.get_transforms(is_training=False)
-        train_dataset = ImageDataset(self.X_train_raw, self.y_train_raw, transform=train_transform)
-        test_dataset = ImageDataset(self.X_test_raw, self.y_test_raw, transform=test_transform)
-
-        final_train_loader = DataLoader(
-            train_dataset, batch_size=best_params['batch_size'], shuffle=True, num_workers=0
-        )
-        final_test_loader = DataLoader(
-            test_dataset, batch_size=best_params['batch_size'], shuffle=False, num_workers=0
+        # Criar dataloaders finais (suporta tanto lazy quanto padrão)
+        final_train_loader, _, final_test_loader = self.create_dataloaders(
+            batch_size=best_params['batch_size'], val_split=0.0
         )
 
         model, history = self.train_model(
