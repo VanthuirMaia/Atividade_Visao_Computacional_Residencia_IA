@@ -9,6 +9,7 @@ numpy>=1.24.0
 joblib>=1.3.0
 Pillow>=10.0.0
 kagglehub>=0.2.0
+kaggle>=1.5.0
 psutil>=5.9.0
 scipy>=1.10.0
 

@@ -3,7 +3,14 @@
 
 > **Este README consolida TODA a documentação do projeto**, incluindo toda a história de desenvolvimento, erros encontrados, correções implementadas, otimizações, mudanças de parâmetros, ajustes de métodos, e exemplos de código específicos com explicações detalhadas.
 
-**Versão do Projeto**: 1.0.0 (Final) **Última Atualização**: 2024 **Status**: Estável e Otimizado
+**Versão do Projeto**: 1.0.1 **Última Atualização**: 2025 **Status**: Estável e Otimizado
+
+### 🆕 Novidades na Versão 1.0.1
+
+- ✨ **Interface Gráfica**: Agora você pode selecionar imagens visualmente usando uma janela gráfica
+- 🎯 **Classificação com Todos os Modelos**: Por padrão, usa TODOS os modelos treinados e retorna resposta final baseada em consenso
+- 📊 **Análise Comparativa**: Mostra resultados individuais de cada modelo e análise de concordância
+- 🔧 **Melhorias de UX**: Caminho da imagem agora é opcional - interface gráfica abre automaticamente
 
 ---
 
@@ -28,6 +35,8 @@ Projeto completo de classificação de imagens (AI Art vs Human Art) utilizando 
 - **Pipeline Deep Learning**: Simple CNN e ResNet50 com transfer learning
 - **Otimizações Avançadas**: Gerenciamento de memória, lazy loading, limpeza automática
 - **Sistema Completo**: Download automático de dataset, diagnóstico, salvamento de modelos
+- **Interface Gráfica**: Seletor visual de imagens integrado (tkinter)
+- **Classificação Consensual**: Usa todos os modelos por padrão para maior precisão
 
 ## Estrutura Completa do Projeto
 
@@ -35,6 +44,7 @@ Projeto completo de classificação de imagens (AI Art vs Human Art) utilizando 
 .
 ├── main.py # Ponto de entrada principal com menu interativo
 ├── main_subset.py # Versão para testes rápidos com subset (10 imagens/classe)
+├── classify_image.py # 🆕 Script de classificação com interface gráfica
 ├── requirements.txt # Todas as dependências do projeto
 ├── README.md # Este arquivo - documentação completa consolidada
 │
@@ -2404,6 +2414,288 @@ Edite os pipelines diretamente:
 param_space = { 'learning_rate': (0.00001, 0.001),  # Espaço maior 'batch_size': [8, 16, 32, 64], # Mais opções 'dropout_rate': (0.2, 0.8), # Espaço maior 'hidden_units': [128, 256, 512, 1024, 2048]  # Mais opções
 }
 ```
+
+---
+
+## Guia 5: Classificar Imagem Nova (Predição)
+
+Use o script `classify_image.py` para classificar uma imagem nova como AI Art ou Human Art.
+
+**✨ NOVO**: Agora você pode usar uma **interface gráfica** para selecionar a imagem facilmente, sem precisar digitar caminhos longos!
+
+**IMPORTANTE**: Por padrão, o script usa **TODOS os modelos treinados** e retorna uma resposta final baseada em votação ponderada. Isso garante maior precisão na classificação.
+
+### Requisitos
+
+Antes de usar, certifique-se de que:
+- Pelo menos um modelo foi treinado (execute `python main.py` primeiro)
+- A imagem está em formato suportado (JPG, JPEG, PNG)
+
+### 📋 Resumo Rápido
+
+**Forma mais simples (interface gráfica):**
+```bash
+python classify_image.py  # Abre janela para selecionar imagem
+```
+
+**Forma tradicional (caminho direto):**
+```bash
+python classify_image.py minha_imagem.jpg  # Especifica caminho diretamente
+```
+
+Ambas as formas usam **TODOS os modelos** por padrão e retornam uma resposta final baseada em consenso.
+
+---
+
+### Uso Básico (RECOMENDADO - Usa Todos os Modelos)
+
+**Opção 1: Selecionar imagem usando interface gráfica (MAIS FÁCIL) ⭐**
+
+```bash
+# Abre uma janela para selecionar a imagem - RECOMENDADO!
+python classify_image.py
+
+# Ou explicitamente forçar interface gráfica:
+python classify_image.py --gui
+```
+
+**Opção 2: Especificar caminho da imagem diretamente**
+
+```bash
+# Usar TODOS os modelos e retornar resposta final (PADRÃO - RECOMENDADO)
+python classify_image.py minha_imagem.jpg
+
+# Ou explicitamente:
+python classify_image.py minha_imagem.jpg --model all
+```
+
+**💡 Por que usar interface gráfica?**
+- ✅ Não precisa digitar caminhos longos
+- ✅ Navegação visual pelos arquivos
+- ✅ Filtros automáticos para imagens
+- ✅ Funciona de qualquer diretório
+
+### Usar Apenas um Modelo Específico
+
+Se quiser usar apenas um modelo específico (não recomendado, mas disponível):
+
+**Com interface gráfica:**
+```bash
+# Abre a interface para selecionar imagem, mas usa apenas CNN
+python classify_image.py --gui --model cnn
+```
+
+**Com caminho direto:**
+```bash
+# CNN Simples (melhor performance individual - 70.89% acurácia)
+python classify_image.py minha_imagem.jpg --model cnn
+
+# SVM (rápido - 68.15% acurácia)
+python classify_image.py minha_imagem.jpg --model svm
+
+# Random Forest (63.01% acurácia)
+python classify_image.py minha_imagem.jpg --model random_forest
+
+# ResNet50 (55.14% acurácia)
+python classify_image.py minha_imagem.jpg --model resnet50
+```
+
+**💡 Dica**: Recomendamos usar `--model all` (padrão) para obter resultados mais confiáveis baseados em consenso entre todos os modelos.
+
+### Como Funciona a Classificação com Todos os Modelos
+
+Quando você usa `--model all` (ou não especifica o modelo), o script:
+
+1. **Carrega todos os modelos disponíveis** (CNN, SVM, Random Forest, ResNet50)
+2. **Classifica a imagem com cada modelo** individualmente
+3. **Calcula uma votação ponderada**:
+   - Cada modelo vota baseado na sua predição
+   - O voto é ponderado pela **acurácia do modelo** × **confiança na predição**
+   - Modelos mais acurados têm mais peso na decisão final
+4. **Retorna uma resposta final** clara: "Arte Gerada por IA" ou "Arte Criada por Humano"
+5. **Mostra resultados individuais** de cada modelo para análise
+
+### 🎨 Interface Gráfica para Seleção de Imagem (RECOMENDADO)
+
+A forma mais fácil de classificar uma imagem é usar a interface gráfica integrada:
+
+**Como usar:**
+
+1. **Execute**: `python classify_image.py` (sem argumentos)
+2. **Uma janela será aberta automaticamente** para selecionar o arquivo
+3. **Navegue até sua imagem** usando o explorador de arquivos
+4. **Clique em "Abrir"**
+5. **O script classificará automaticamente** usando todos os modelos disponíveis
+
+**Vantagens da interface gráfica:**
+
+✅ **Mais fácil**: Não precisa digitar caminhos longos  
+✅ **Visual**: Navegue pelos arquivos visualmente  
+✅ **Filtros automáticos**: Mostra apenas imagens (JPG, PNG, BMP, GIF)  
+✅ **Funciona em qualquer lugar**: Abre a partir do diretório atual  
+
+**Formatos suportados na interface**: JPG, JPEG, PNG, BMP, GIF
+
+**Opção `--gui` explícita:**
+
+```bash
+# Forçar abertura da interface gráfica mesmo com outros argumentos
+python classify_image.py --gui
+```
+
+**Nota**: Se `tkinter` não estiver disponível (raro em Windows/macOS, pode precisar instalação em Linux), o script pedirá que você forneça o caminho da imagem diretamente.
+
+### Exemplo de Saída (Usando Todos os Modelos - PADRÃO)
+
+```
+📁 Abrindo seletor de arquivo...
+✅ Imagem selecionada: C:\Users\Usuario\Downloads\minha_imagem.jpg
+
+======================================================================
+CLASSIFICANDO IMAGEM COM TODOS OS MODELOS DISPONÍVEIS
+======================================================================
+Imagem: C:\Users\Usuario\Downloads\minha_imagem.jpg
+
+======================================================================
+RESULTADO FINAL - CLASSIFICAÇÃO COM TODOS OS MODELOS
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+RESPOSTA FINAL: Arte Gerada por IA
+Confiança: 78.45%
+──────────────────────────────────────────────────────────────────────
+
+Resultados individuais de cada modelo:
+──────────────────────────────────────────────────────────────────────
+✅ SimpleCNN              → Arte Gerada por IA        (Conf: 92.1%, Acurácia: 70.9%)
+✅ SVM                    → Arte Gerada por IA        (Conf: 87.3%, Acurácia: 68.2%)
+❌ Random Forest          → Arte Criada por Humano    (Conf: 65.4%, Acurácia: 63.0%)
+✅ ResNet50               → Arte Gerada por IA        (Conf: 58.2%, Acurácia: 55.1%)
+──────────────────────────────────────────────────────────────────────
+
+Concordância: 3/4 modelos (75.0%) concordam com a resposta final
+======================================================================
+```
+
+### Exemplo de Saída (Usando Apenas um Modelo)
+
+Se usar `--model cnn`:
+
+```
+============================================================
+CLASSIFICANDO COM CNN
+============================================================
+
+Carregando modelo cnn...
+Carregando e pré-processando imagem: minha_imagem.jpg
+Fazendo predição...
+
+============================================================
+RESULTADO DA CLASSIFICAÇÃO
+============================================================
+
+Modelo usado: SimpleCNN
+Acurácia do modelo: 70.89%
+
+────────────────────────────────────────────────────────────
+PREDIÇÃO: Arte Gerada por IA
+Confiança: 92.15%
+────────────────────────────────────────────────────────────
+
+Probabilidades por classe:
+  Arte Gerada por IA        : 92.15% ████████████████████████████████████████████
+  Arte Criada por Humano    :  7.85% ███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+============================================================
+```
+
+### Como Funciona (Fluxo Completo)
+
+**1. Seleção da Imagem:**
+   - Via interface gráfica: Janela abre automaticamente para seleção
+   - Via argumento: Caminho fornecido diretamente na linha de comando
+
+**2. Carregamento dos Modelos:**
+   - Script carrega todos os modelos treinados de `outputs/models/`
+   - Se usar `--model all` (padrão), carrega: CNN, SVM, Random Forest, ResNet50
+   - Se usar modelo específico, carrega apenas o selecionado
+
+**3. Pré-processamento:**
+   - A imagem é pré-processada da mesma forma que foi feito durante o treinamento:
+   - Para modelos clássicos (SVM, Random Forest): Redimensiona para 64x64, normaliza, aplica PCA se usado
+   - Para modelos deep learning (CNN, ResNet50): Redimensiona para 224x224, normaliza com valores ImageNet
+   - Aplica tratamento automático: conversão RGB, correção EXIF, validação
+
+**4. Classificação:**
+   - Cada modelo faz sua predição individual
+   - Se usando todos os modelos: calcula votação ponderada por acurácia × confiança
+   - Se usando um modelo: retorna predição direta
+
+**5. Resultados:**
+   - Mostra resposta final: "Arte Gerada por IA" ou "Arte Criada por Humano"
+   - Exibe confiança da predição
+   - Se usando todos os modelos: mostra resultados individuais de cada modelo e concordância
+
+### Formatos de Imagem Suportados
+
+- JPG / JPEG
+- PNG
+- BMP
+- GIF
+
+### Tratamento Automático
+
+O script aplica automaticamente:
+- Conversão para RGB (3 canais)
+- Correção de orientação EXIF
+- Remoção de transparência (alpha channel)
+- Conversão de grayscale para RGB
+- Validação de dimensões mínimas
+
+### Troubleshooting
+
+**Erro: "Modelo não encontrado"**
+- Execute o pipeline de treinamento primeiro: `python main.py`
+- Escolha a opção 1 (Pipeline Clássico) ou 2 (Pipeline Deep Learning)
+
+**Erro: "Scaler não encontrado"** (para modelos clássicos)
+- O scaler é salvo automaticamente durante o treinamento
+- Se não existir, re-treine o modelo
+
+**Erro: "PCA não encontrado"** (para modelos clássicos)
+- Se PCA foi usado no treinamento, o arquivo `*_pca.pkl` deve existir
+- Se não existir e PCA foi usado, re-treine o modelo
+
+**Erro: "tkinter não está disponível"** (ao tentar usar interface gráfica)
+- O `tkinter` geralmente vem com Python, mas em algumas distribuições Linux pode precisar ser instalado
+- **Solução Linux (Ubuntu/Debian)**: `sudo apt-get install python3-tk`
+- **Solução Linux (CentOS/RHEL/Fedora)**: `sudo yum install python3-tkinter` ou `sudo dnf install python3-tkinter`
+- **Solução macOS**: Geralmente já vem instalado, se não: `brew install python-tk`
+- **Alternativa**: Se não puder instalar tkinter, use o caminho da imagem como argumento: `python classify_image.py caminho/para/imagem.jpg`
+- **Verificar se tkinter está disponível**: Execute `python -c "import tkinter"` - se não der erro, está disponível
+
+**Imagem muito pequena ou corrompida**
+- Use imagens com pelo menos 32x32 pixels
+- Verifique se a imagem não está corrompida
+- Tente converter para outro formato (JPG ou PNG)
+
+**Interface gráfica não abre (Windows)**
+- Verifique se Python foi instalado corretamente
+- Tente executar: `python -m tkinter` - se abrir uma janela, tkinter funciona
+- Se não funcionar, reinstale Python e marque a opção "tcl/tk and IDLE" durante a instalação
+
+**Interface gráfica não abre (Linux)**
+- Instale tkinter: `sudo apt-get install python3-tk` (Ubuntu/Debian) ou `sudo dnf install python3-tkinter` (Fedora)
+- Certifique-se de que está usando a versão correta do Python
+- Se usar ambiente virtual, instale tkinter ANTES de criar o ambiente virtual
+
+**Caminho com espaços ou caracteres especiais**
+- Use aspas: `python classify_image.py "caminho com espaços/imagem.jpg"`
+- Ou use a interface gráfica que trata isso automaticamente
+
+**Verificar se tkinter está disponível**
+- Execute: `python -c "import tkinter"` - se não der erro, está disponível
+- Se der erro `ModuleNotFoundError`, instale tkinter conforme seu sistema operacional
 
 ---
 
