@@ -7,6 +7,8 @@ Com suporte a lazy loading e gerenciamento de memória
 
 import numpy as np
 import random
+import time
+from datetime import timedelta
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -18,12 +20,14 @@ from ..config import (
     LEARNING_RATE, USE_AUGMENTATION, AUGMENTATION_PARAMS, IMG_SIZE,
     USE_LAZY_LOADING, IMAGE_CACHE_SIZE, MIN_BATCH_SIZE,
     MEMORY_WARNING_THRESHOLD, MEMORY_CRITICAL_THRESHOLD,
-    CLEAR_MEMORY_EVERY_N_BATCHES
+    CLEAR_MEMORY_EVERY_N_BATCHES, RESNET50_BATCH_SIZES, RESNET50_DEFAULT_BATCH_SIZE,
+    RESNET50_SEARCH_EPOCHS, RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS
 )
 from ..utils import (
     load_images_from_directory, calculate_metrics, plot_confusion_matrix,
     save_results_table, print_results_summary, setup_device
 )
+from ..model_saver import save_model_with_metadata, create_model_metadata
 from ..models import SimpleCNN
 from ..memory import (
     MemoryMonitor, clear_memory, AdaptiveBatchSize,
@@ -122,14 +126,71 @@ class DeepLearningPipeline:
         self.memory_monitor.print_status()
         print(f"Lazy Loading: {'Ativado' if self.use_lazy_loading else 'Desativado'}")
         
-        # Verificar e confirmar dispositivo usado
+        # Verificar e confirmar dispositivo usado - MELHORADO
+        print(f"\n   {'='*60}")
+        print(f"   VERIFICAÇÃO DE DISPOSITIVO NO PIPELINE")
+        print(f"   {'='*60}")
+        print(f"   Parâmetro use_gpu recebido: {use_gpu}")
+        print(f"   Dispositivo retornado por setup_device: {self.device}")
+        print(f"   Tipo do dispositivo: {type(self.device)}")
+        
+        # Garantir que device é torch.device
+        if isinstance(self.device, str):
+            print(f"   ⚠️  Dispositivo é string '{self.device}', convertendo para torch.device...")
+            self.device = torch.device(self.device)
+            print(f"   ✅ Convertido para: {self.device}")
+        elif not isinstance(self.device, torch.device):
+            print(f"   ⚠️  Tipo de dispositivo desconhecido: {type(self.device)}")
+            print(f"   Tentando converter para torch.device...")
+            try:
+                self.device = torch.device(str(self.device))
+                print(f"   ✅ Convertido para: {self.device}")
+            except:
+                print(f"   ⚠️  Erro na conversão, usando CPU como fallback...")
+                self.device = torch.device('cpu')
+                print(f"   Dispositivo definido para: {self.device}")
+        
+        # Verificar tipo do dispositivo
         if isinstance(self.device, torch.device):
             if self.device.type == 'cuda':
-                print(f"✅ Dispositivo confirmado: GPU - {torch.cuda.get_device_name(self.device.index or 0)}")
+                try:
+                    gpu_name = torch.cuda.get_device_name(self.device.index or 0)
+                    gpu_mem = torch.cuda.memory_allocated(self.device.index or 0) / (1024**2)
+                    print(f"   ✅ DISPOSITIVO CONFIRMADO: GPU - {gpu_name}")
+                    print(f"      Device object: {self.device}")
+                    print(f"      GPU ativa: {torch.cuda.is_available()}")
+                    print(f"      GPU atual: {torch.cuda.current_device()}")
+                    print(f"      Memória alocada: {gpu_mem:.2f} MB")
+                except Exception as e:
+                    print(f"   ⚠️  Erro ao obter informações da GPU: {e}")
+                    print(f"      Device: {self.device}")
+                    # Tentar forçar uso de GPU se CUDA está disponível
+                    if torch.cuda.is_available():
+                        print(f"      ⚠️  AVISO: CUDA disponível mas erro ao acessar GPU específica")
+                        print(f"      Tentando usar cuda:0 diretamente...")
+                        self.device = torch.device('cuda:0')
+                        print(f"      ✅ Dispositivo forçado para: {self.device}")
             else:
-                print(f"ℹ️  Dispositivo confirmado: CPU")
-        else:
-            print(f"⚠️  Dispositivo: {self.device} (pode ser string)")
+                print(f"   ℹ️  DISPOSITIVO CONFIRMADO: CPU ({self.device})")
+                if use_gpu and torch.cuda.is_available():
+                    print(f"   ⚠️  ATENÇÃO: GPU foi solicitada e está disponível, mas dispositivo é CPU!")
+                    print(f"      Possíveis razões:")
+                    print(f"      1. Teste de GPU falhou durante setup_device()")
+                    print(f"      2. Erro ao acessar GPU")
+                    print(f"      3. GPU sem memória disponível")
+                    print(f"      Tentando forçar uso de GPU...")
+                    try:
+                        # Tentar forçar GPU novamente
+                        test_tensor = torch.randn(1, 1).to(torch.device('cuda:0'))
+                        del test_tensor
+                        torch.cuda.empty_cache()
+                        self.device = torch.device('cuda:0')
+                        print(f"      ✅ GPU forçada com sucesso! Dispositivo: {self.device}")
+                    except Exception as e:
+                        print(f"      ❌ Não foi possível forçar GPU: {e}")
+                        print(f"      Continuando com CPU...")
+        
+        print(f"   {'='*60}\n")
 
     def get_transforms(self, is_training=False):
         """
@@ -461,7 +522,7 @@ class DeepLearningPipeline:
         Treina modelo com uma configuração específica
         
         Args:
-            model: Modelo a ser treinado
+            model: Modelo a ser treinado (já deve estar no dispositivo correto)
             train_loader: DataLoader de treinamento
             val_loader: DataLoader de validação (pode ser None se val_split=0.0)
             epochs: Número de épocas
@@ -471,8 +532,15 @@ class DeepLearningPipeline:
         Returns:
             best_val_acc: Melhor acurácia de validação (ou treinamento se val_loader=None)
             model: Modelo treinado
+            train_time: Tempo de treinamento em segundos
         """
-        model = model.to(self.device)
+        start_time = time.time()
+        
+        # Garantir que modelo está no dispositivo correto
+        if next(model.parameters()).device != self.device:
+            print(f"     [AVISO] Movendo modelo de {next(model.parameters()).device} para {self.device}")
+            model = model.to(self.device)
+        
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
@@ -556,13 +624,29 @@ class DeepLearningPipeline:
             if epochs_without_improvement >= patience:
                 break
 
-        return best_val_acc, model
+        train_time = time.time() - start_time
+        
+        # Limpar memória ao final do treinamento (especialmente importante para Random Search)
+        clear_memory(clear_gpu=True)
+        
+        return best_val_acc, model, train_time
 
     def train_model(self, model, train_loader, epochs, learning_rate, model_name):
         """
         Treina um modelo com gerenciamento de memória
+        
+        Args:
+            model: Modelo a ser treinado (já deve estar no dispositivo correto)
+            train_loader: DataLoader de treinamento
+            epochs: Número de épocas
+            learning_rate: Taxa de aprendizado
+            model_name: Nome do modelo (para logging)
         """
-        model = model.to(self.device)
+        # Garantir que modelo está no dispositivo correto
+        if next(model.parameters()).device != self.device:
+            print(f"   [AVISO] Movendo modelo {model_name} de {next(model.parameters()).device} para {self.device}")
+            model = model.to(self.device)
+        
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -571,8 +655,13 @@ class DeepLearningPipeline:
 
         history = {'train_loss': [], 'train_acc': []}
         batch_count = 0
+        
+        # Iniciar medição de tempo
+        start_time = time.time()
+        epoch_times = []
 
         for epoch in range(epochs):
+            epoch_start = time.time()
             model.train()
             running_loss = 0.0
             correct = 0
@@ -634,11 +723,31 @@ class DeepLearningPipeline:
 
             scheduler.step(epoch_loss)
 
+            # Calcular tempo da época
+            epoch_time = time.time() - epoch_start
+            epoch_times.append(epoch_time)
+            avg_epoch_time = np.mean(epoch_times)
+
             # Limpeza de memória ao final de cada época
             clear_memory(clear_gpu=True)
 
             if (epoch + 1) % 5 == 0:
-                print(f"Época [{epoch+1}/{epochs}] - Loss: {epoch_loss:.4f}, Acc: {epoch_acc:.4f}")
+                elapsed_time = time.time() - start_time
+                remaining_epochs = epochs - (epoch + 1)
+                estimated_remaining = timedelta(seconds=int(remaining_epochs * avg_epoch_time))
+                print(f"Época [{epoch+1}/{epochs}] - Loss: {epoch_loss:.4f}, Acc: {epoch_acc:.4f} | "
+                      f"Tempo: {epoch_time:.1f}s | Tempo médio/época: {avg_epoch_time:.1f}s | "
+                      f"Tempo estimado restante: {estimated_remaining}")
+
+        # Tempo total de treinamento
+        total_train_time = time.time() - start_time
+        total_train_time_str = str(timedelta(seconds=int(total_train_time)))
+        history['total_train_time'] = total_train_time
+        history['avg_epoch_time'] = avg_epoch_time if epoch_times else 0.0
+
+        print(f"\nTreinamento concluído! Tempo total: {total_train_time_str} ({total_train_time:.2f} segundos)")
+        if epoch_times:
+            print(f"Tempo médio por época: {avg_epoch_time:.2f} segundos")
 
         return model, history
 
@@ -697,6 +806,9 @@ class DeepLearningPipeline:
         print("TREINANDO MODELO: CNN Simples (sem Transfer Learning)")
         print("="*80)
 
+        # Iniciar medição de tempo total
+        total_start_time = time.time()
+
         best_params = {
             'learning_rate': LEARNING_RATE,
             'batch_size': BATCH_SIZE,
@@ -704,8 +816,12 @@ class DeepLearningPipeline:
             'hidden_units': 512
         }
 
+        random_search_time = 0.0
+
         if use_random_search:
             print(f"\nExecutando Random Search ({n_iter} iterações)...")
+            search_start_time = time.time()
+            
             param_space = {
                 'learning_rate': (0.0001, 0.01),
                 'batch_size': [16, 32, 64],
@@ -717,6 +833,7 @@ class DeepLearningPipeline:
             search_epochs = min(15, final_epochs)
 
             for i in range(n_iter):
+                iter_start = time.time()
                 params = sample_hyperparameters(param_space)
                 print(f"\n  Iteração {i+1}/{n_iter}: lr={params['learning_rate']:.6f}, "
                       f"batch={params['batch_size']}, dropout={params['dropout_rate']:.2f}, "
@@ -731,33 +848,63 @@ class DeepLearningPipeline:
                     dropout_rate=params['dropout_rate'],
                     hidden_units=params['hidden_units']
                 )
+                
+                # CRÍTICO: Mover modelo para dispositivo correto ANTES do treinamento
+                model = model.to(self.device)
+                
+                # Verificar dispositivo do modelo (apenas na primeira iteração)
+                if i == 0:
+                    model_device = next(model.parameters()).device
+                    print(f"     Modelo SimpleCNN criado e movido para: {model_device}")
+                    if model_device.type == 'cuda':
+                        print(f"     ✅ SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
 
-                val_acc, _ = self.train_single_config(
+                val_acc, _, iter_time = self.train_single_config(
                     model, train_loader, val_loader, search_epochs,
                     params['learning_rate'], patience=5
                 )
 
-                print(f"    Val Acc: {val_acc:.4f}")
+                iter_total_time = time.time() - iter_start
+                print(f"    Val Acc: {val_acc:.4f} | Tempo da iteração: {iter_total_time:.1f}s ({iter_time:.1f}s treino)")
 
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     best_params = params.copy()
 
+            random_search_time = time.time() - search_start_time
+            random_search_str = str(timedelta(seconds=int(random_search_time)))
+            
             print(f"\nMelhores hiperparâmetros encontrados:")
             print(f"  Learning Rate: {best_params['learning_rate']:.6f}")
             print(f"  Batch Size: {best_params['batch_size']}")
             print(f"  Dropout Rate: {best_params['dropout_rate']:.2f}")
             print(f"  Hidden Units: {best_params['hidden_units']}")
             print(f"  Melhor Val Acc: {best_val_acc:.4f}")
+            print(f"  Tempo de Random Search: {random_search_str} ({random_search_time:.2f} segundos)")
 
         # Treinamento final
         print(f"\nTreinamento final com {final_epochs} épocas...")
+        final_train_start = time.time()
+        
         model = SimpleCNN(
             self.num_classes,
             dropout_rate=best_params['dropout_rate'],
             hidden_units=best_params['hidden_units']
         )
-        print(f"Modelo criado com {sum(p.numel() for p in model.parameters())} parâmetros")
+        
+        # CRÍTICO: Mover modelo para dispositivo correto ANTES do treinamento
+        model = model.to(self.device)
+        
+        # Verificar dispositivo do modelo
+        model_device = next(model.parameters()).device
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"\nModelo SimpleCNN criado:")
+        print(f"  Parâmetros: {total_params:,}")
+        print(f"  Dispositivo: {model_device}")
+        if model_device.type == 'cuda':
+            print(f"  ✅ SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
+        else:
+            print(f"  ℹ️  SimpleCNN está na CPU")
 
         # Criar dataloaders finais (suporta tanto lazy quanto padrão)
         final_train_loader, _, final_test_loader = self.create_dataloaders(
@@ -767,17 +914,62 @@ class DeepLearningPipeline:
         model, history = self.train_model(
             model, final_train_loader, final_epochs, best_params['learning_rate'], "SimpleCNN"
         )
+        
+        final_train_time = time.time() - final_train_start
+        final_train_str = str(timedelta(seconds=int(final_train_time)))
 
+        # Avaliação
+        eval_start = time.time()
         metrics, y_true, y_pred, cm = self.evaluate_model(model, final_test_loader)
+        eval_time = time.time() - eval_start
+
+        # Tempo total
+        total_time = time.time() - total_start_time
+        total_time_str = str(timedelta(seconds=int(total_time)))
 
         print(f"\nAcurácia - Teste: {metrics['accuracy']:.4f}")
         print(f"Precisão - Teste: {metrics['precision']:.4f}")
         print(f"Recall - Teste: {metrics['recall']:.4f}")
         print(f"F1-Score - Teste: {metrics['f1_score']:.4f}")
+        print(f"\nTempos de execução:")
+        if use_random_search:
+            print(f"  Random Search: {random_search_str} ({random_search_time:.2f}s)")
+        print(f"  Treinamento Final: {final_train_str} ({final_train_time:.2f}s)")
+        print(f"  Avaliação: {eval_time:.2f} segundos")
+        print(f"  Tempo Total: {total_time_str} ({total_time:.2f} segundos)")
 
+        # Criar metadados
+        metadata = create_model_metadata(
+            model_name='SimpleCNN',
+            metrics=metrics,
+            hyperparams={
+                'learning_rate': best_params['learning_rate'],
+                'batch_size': best_params['batch_size'],
+                'dropout_rate': best_params['dropout_rate'],
+                'hidden_units': best_params['hidden_units'],
+                'num_classes': self.num_classes
+            },
+            training_info={
+                'use_random_search': use_random_search,
+                'n_iter': n_iter if use_random_search else 0,
+                'final_epochs': final_epochs,
+                'random_search_time': random_search_time,
+                'final_train_time': final_train_time,
+                'total_time': total_time,
+                'device': str(self.device),
+                'use_augmentation': USE_AUGMENTATION
+            },
+            class_names=self.class_names
+        )
+        
+        # Salvar modelo com metadados
         model_path = MODELS_DIR / 'simple_cnn.pth'
-        torch.save(model.state_dict(), model_path)
-        print(f"Modelo salvo em: {model_path}")
+        save_model_with_metadata(
+            model=model,
+            model_path=model_path,
+            metadata=metadata,
+            model_type='pytorch'
+        )
 
         cm_path = FIGURES_DIR / 'simple_cnn_confusion_matrix.png'
         plot_confusion_matrix(cm, self.class_names,
@@ -791,12 +983,17 @@ class DeepLearningPipeline:
             'F1-Score': f"{metrics['f1_score']:.4f}",
             'Transfer Learning': 'Não',
             'Data Augmentation': 'Sim' if USE_AUGMENTATION else 'Não',
-            'Otimização': f'Random Search ({n_iter} iter)' if use_random_search else 'Padrão'
+            'Otimização': f'Random Search ({n_iter} iter)' if use_random_search else 'Padrão',
+            'Tempo Total (s)': f"{total_time:.2f}",
+            'Tempo Total (hh:mm:ss)': total_time_str,
+            'Tempo Random Search (s)': f"{random_search_time:.2f}" if use_random_search else "0.00",
+            'Tempo Treino Final (s)': f"{final_train_time:.2f}"
         })
 
     def create_resnet_model(self, unfreeze_layers=0):
         """
         Cria modelo ResNet50 com transfer learning
+        Com verificação de memória antes de carregar
         
         Args:
             unfreeze_layers: Número de camadas para descongelar (0 = apenas FC)
@@ -807,6 +1004,31 @@ class DeepLearningPipeline:
         if not hasattr(self, 'num_classes'):
             raise ValueError("Dados não carregados! Chame load_data() antes de criar modelo.")
         
+        # Verificar memória disponível antes de carregar modelo grande
+        print(f"\n   Verificando memória antes de carregar ResNet50...")
+        ram_used, ram_total, ram_percent = self.memory_monitor.get_ram_usage()
+        print(f"     RAM: {ram_used:.2f} GB / {ram_total:.2f} GB ({ram_percent*100:.1f}%)")
+        
+        if torch.cuda.is_available() and self.device.type == 'cuda':
+            gpu_mem_used = torch.cuda.memory_allocated() / (1024**3)
+            gpu_mem_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            gpu_mem_percent = (gpu_mem_used / gpu_mem_total) * 100 if gpu_mem_total > 0 else 0
+            print(f"     GPU: {gpu_mem_used:.2f} GB / {gpu_mem_total:.2f} GB ({gpu_mem_percent:.1f}%)")
+            
+            # Aviso se memória GPU estiver alta
+            if gpu_mem_percent > 80:
+                print(f"     [AVISO] Memória GPU alta! Limpando cache...")
+                clear_memory(clear_gpu=True)
+        
+        # Aviso se RAM estiver alta
+        if ram_percent > MEMORY_WARNING_THRESHOLD:
+            print(f"     [AVISO] Memória RAM alta ({ram_percent*100:.1f}%)! Limpando memória...")
+            clear_memory(clear_gpu=False)
+        
+        # Limpar memória antes de carregar modelo
+        clear_memory(clear_gpu=True)
+        
+        print(f"   Carregando ResNet50 pré-treinado...")
         model = models.resnet50(weights='IMAGENET1K_V2')
 
         for param in model.parameters():
@@ -823,6 +1045,20 @@ class DeepLearningPipeline:
             for i, layer in enumerate(layers[:unfreeze_layers]):
                 for param in layer.parameters():
                     param.requires_grad = True
+        
+        # CRÍTICO: Mover modelo para dispositivo correto (GPU ou CPU)
+        model = model.to(self.device)
+        
+        # Mostrar informações do modelo e dispositivo
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        model_device = next(model.parameters()).device
+        print(f"   ResNet50 carregado: {total_params:,} parâmetros total, {trainable_params:,} treináveis")
+        print(f"   Modelo movido para: {model_device}")
+        if model_device.type == 'cuda':
+            print(f"   ✅ ResNet50 está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
+        else:
+            print(f"   ℹ️  ResNet50 está na CPU")
 
         return model
 
@@ -843,57 +1079,145 @@ class DeepLearningPipeline:
         print("TREINANDO MODELO: ResNet50 (com Transfer Learning)")
         print("="*80)
 
+        # Iniciar medição de tempo total
+        total_start_time = time.time()
+
         best_params = {
             'learning_rate': LEARNING_RATE,
-            'batch_size': BATCH_SIZE,
+            'batch_size': RESNET50_DEFAULT_BATCH_SIZE,
             'unfreeze_layers': 0
         }
 
+        random_search_time = 0.0
+
         if use_random_search:
             print(f"\nExecutando Random Search ({n_iter} iterações)...")
+            print(f"  Batch sizes testados: {RESNET50_BATCH_SIZES}")
+            print(f"  Épocas por iteração: {RESNET50_SEARCH_EPOCHS}")
+            print(f"  Limpeza de memória entre iterações: {'Ativada' if RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS else 'Desativada'}")
+            search_start_time = time.time()
+            
             param_space = {
                 'learning_rate': (0.00001, 0.001),
-                'batch_size': [16, 32, 64],
+                'batch_size': RESNET50_BATCH_SIZES,  # Usar configurações específicas do ResNet50
                 'unfreeze_layers': [0, 1, 2]
             }
 
             best_val_acc = 0.0
-            search_epochs = min(10, final_epochs)
+            search_epochs = min(RESNET50_SEARCH_EPOCHS, final_epochs)
 
             for i in range(n_iter):
+                iter_start = time.time()
                 params = sample_hyperparameters(param_space)
                 print(f"\n  Iteração {i+1}/{n_iter}: lr={params['learning_rate']:.6f}, "
                       f"batch={params['batch_size']}, unfreeze={params['unfreeze_layers']}")
+
+                # Limpar memória ANTES de cada iteração (especialmente importante para ResNet50)
+                if RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS:
+                    clear_memory(clear_gpu=True)
 
                 train_loader, val_loader, _ = self.create_dataloaders(
                     params['batch_size'], val_split=0.2
                 )
 
                 model = self.create_resnet_model(unfreeze_layers=params['unfreeze_layers'])
+                
+                # Verificar dispositivo do modelo após criação (apenas na primeira iteração)
+                if i == 0:
+                    model_device = next(model.parameters()).device
+                    print(f"     Modelo ResNet50 criado e verificado:")
+                    print(f"       Dispositivo: {model_device}")
+                    if model_device.type == 'cuda':
+                        gpu_name = torch.cuda.get_device_name(model_device.index or 0)
+                        gpu_mem = torch.cuda.memory_allocated(model_device.index or 0) / (1024**2)
+                        print(f"       ✅ ResNet50 está na GPU: {gpu_name}")
+                        print(f"       Memória GPU alocada: {gpu_mem:.2f} MB")
+                    else:
+                        print(f"       ℹ️  ResNet50 está na CPU")
 
-                val_acc, _ = self.train_single_config(
-                    model, train_loader, val_loader, search_epochs,
-                    params['learning_rate'], patience=5
-                )
+                try:
+                    val_acc, trained_model, iter_time = self.train_single_config(
+                        model, train_loader, val_loader, search_epochs,
+                        params['learning_rate'], patience=5
+                    )
 
-                print(f"    Val Acc: {val_acc:.4f}")
+                    iter_total_time = time.time() - iter_start
+                    print(f"    Val Acc: {val_acc:.4f} | Tempo da iteração: {iter_total_time:.1f}s ({iter_time:.1f}s treino)")
 
-                if val_acc > best_val_acc:
-                    best_val_acc = val_acc
-                    best_params = params.copy()
+                    if val_acc > best_val_acc:
+                        best_val_acc = val_acc
+                        best_params = params.copy()
+                
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower():
+                        print(f"    [ERRO] Estouro de memória na iteração {i+1}!")
+                        print(f"    Tentando limpar memória e continuar...")
+                        clear_memory(clear_gpu=True)
+                        
+                        # Tentar com batch size menor
+                        if params['batch_size'] > min(RESNET50_BATCH_SIZES):
+                            reduced_batch = max(min(RESNET50_BATCH_SIZES), params['batch_size'] // 2)
+                            print(f"    Tentando com batch size reduzido: {reduced_batch}")
+                            params['batch_size'] = reduced_batch
+                            continue
+                        else:
+                            print(f"    [AVISO] Não foi possível reduzir mais o batch size. Pulando iteração.")
+                            continue
+                    else:
+                        raise
+                
+                finally:
+                    # Limpar memória APÓS cada iteração (CRÍTICO para ResNet50)
+                    if RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS:
+                        # Mover modelo para CPU antes de deletar
+                        if 'trained_model' in locals():
+                            trained_model = trained_model.cpu()
+                        if 'model' in locals():
+                            model = model.cpu()
+                        del model, trained_model
+                        clear_memory(clear_gpu=True)
+                        
+                        # Mostrar status de memória
+                        if torch.cuda.is_available() and self.device.type == 'cuda':
+                            gpu_mem_used = torch.cuda.memory_allocated() / (1024**3)
+                            print(f"    Memória GPU após limpeza: {gpu_mem_used:.2f} GB")
 
+            random_search_time = time.time() - search_start_time
+            random_search_str = str(timedelta(seconds=int(random_search_time)))
+            
             print(f"\nMelhores hiperparâmetros encontrados:")
             print(f"  Learning Rate: {best_params['learning_rate']:.6f}")
             print(f"  Batch Size: {best_params['batch_size']}")
             print(f"  Unfreeze Layers: {best_params['unfreeze_layers']}")
             print(f"  Melhor Val Acc: {best_val_acc:.4f}")
+            print(f"  Tempo de Random Search: {random_search_str} ({random_search_time:.2f} segundos)")
 
+        # Limpar memória antes do treinamento final
+        clear_memory(clear_gpu=True)
+        
         # Treinamento final
         print(f"\nTreinamento final com {final_epochs} épocas...")
+        print(f"  Batch size: {best_params['batch_size']}")
+        final_train_start = time.time()
+        
         model = self.create_resnet_model(unfreeze_layers=best_params['unfreeze_layers'])
 
-        print(f"Modelo criado com {sum(p.numel() for p in model.parameters())} parâmetros")
-        print(f"Parâmetros treináveis: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+        # Verificar dispositivo final do modelo
+        model_device = next(model.parameters()).device
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        
+        print(f"\nModelo ResNet50 criado para treinamento final:")
+        print(f"  Parâmetros total: {total_params:,}")
+        print(f"  Parâmetros treináveis: {trainable_params:,}")
+        print(f"  Dispositivo: {model_device}")
+        if model_device.type == 'cuda':
+            gpu_name = torch.cuda.get_device_name(model_device.index or 0)
+            gpu_mem = torch.cuda.memory_allocated(model_device.index or 0) / (1024**2)
+            print(f"  ✅ ResNet50 está na GPU: {gpu_name}")
+            print(f"  Memória GPU alocada: {gpu_mem:.2f} MB")
+        else:
+            print(f"  ℹ️  ResNet50 está na CPU")
 
         # Criar dataloaders finais (suporta tanto lazy quanto padrão)
         final_train_loader, _, final_test_loader = self.create_dataloaders(
@@ -903,17 +1227,62 @@ class DeepLearningPipeline:
         model, history = self.train_model(
             model, final_train_loader, final_epochs, best_params['learning_rate'], "ResNet50"
         )
+        
+        final_train_time = time.time() - final_train_start
+        final_train_str = str(timedelta(seconds=int(final_train_time)))
 
+        # Avaliação
+        eval_start = time.time()
         metrics, y_true, y_pred, cm = self.evaluate_model(model, final_test_loader)
+        eval_time = time.time() - eval_start
+
+        # Tempo total
+        total_time = time.time() - total_start_time
+        total_time_str = str(timedelta(seconds=int(total_time)))
 
         print(f"\nAcurácia - Teste: {metrics['accuracy']:.4f}")
         print(f"Precisão - Teste: {metrics['precision']:.4f}")
         print(f"Recall - Teste: {metrics['recall']:.4f}")
         print(f"F1-Score - Teste: {metrics['f1_score']:.4f}")
+        print(f"\nTempos de execução:")
+        if use_random_search:
+            print(f"  Random Search: {random_search_str} ({random_search_time:.2f}s)")
+        print(f"  Treinamento Final: {final_train_str} ({final_train_time:.2f}s)")
+        print(f"  Avaliação: {eval_time:.2f} segundos")
+        print(f"  Tempo Total: {total_time_str} ({total_time:.2f} segundos)")
 
+        # Criar metadados
+        metadata = create_model_metadata(
+            model_name='ResNet50',
+            metrics=metrics,
+            hyperparams={
+                'learning_rate': best_params['learning_rate'],
+                'batch_size': best_params['batch_size'],
+                'unfreeze_layers': best_params['unfreeze_layers'],
+                'num_classes': self.num_classes
+            },
+            training_info={
+                'use_random_search': use_random_search,
+                'n_iter': n_iter if use_random_search else 0,
+                'final_epochs': final_epochs,
+                'random_search_time': random_search_time,
+                'final_train_time': final_train_time,
+                'total_time': total_time,
+                'device': str(self.device),
+                'use_augmentation': USE_AUGMENTATION,
+                'transfer_learning': True
+            },
+            class_names=self.class_names
+        )
+        
+        # Salvar modelo com metadados
         model_path = MODELS_DIR / 'resnet50_transfer.pth'
-        torch.save(model.state_dict(), model_path)
-        print(f"Modelo salvo em: {model_path}")
+        save_model_with_metadata(
+            model=model,
+            model_path=model_path,
+            metadata=metadata,
+            model_type='pytorch'
+        )
 
         cm_path = FIGURES_DIR / 'resnet50_confusion_matrix.png'
         plot_confusion_matrix(cm, self.class_names,
@@ -927,7 +1296,11 @@ class DeepLearningPipeline:
             'F1-Score': f"{metrics['f1_score']:.4f}",
             'Transfer Learning': 'Sim',
             'Data Augmentation': 'Sim' if USE_AUGMENTATION else 'Não',
-            'Otimização': f'Random Search ({n_iter} iter)' if use_random_search else 'Padrão'
+            'Otimização': f'Random Search ({n_iter} iter)' if use_random_search else 'Padrão',
+            'Tempo Total (s)': f"{total_time:.2f}",
+            'Tempo Total (hh:mm:ss)': total_time_str,
+            'Tempo Random Search (s)': f"{random_search_time:.2f}" if use_random_search else "0.00",
+            'Tempo Treino Final (s)': f"{final_train_time:.2f}"
         })
 
     def save_results(self):

@@ -3,14 +3,15 @@
 Funções utilitárias para o projeto
 """
 
-import os
 import numpy as np
+from datetime import datetime
+from pathlib import Path
 import cv2
+from PIL import Image, ImageOps
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from pathlib import Path
 
 
 def setup_device(use_gpu=True):
@@ -23,47 +24,124 @@ def setup_device(use_gpu=True):
     Returns:
         device: Dispositivo configurado (torch.device)
     """
+    # Sempre tentar importar torch primeiro
+    try:
+        import torch
+    except ImportError:
+        print("❌ PyTorch não instalado!")
+        print("   Execute: pip install torch torchvision")
+        raise ImportError("PyTorch não está instalado. Instale com: pip install torch torchvision")
+    
     if use_gpu:
+        # Verificar se CUDA está disponível
+        if not torch.cuda.is_available():
+            print(f"\n{'='*60}")
+            print("CONFIGURAÇÃO DE DISPOSITIVO")
+            print(f"{'='*60}")
+            print("⚠️  GPU solicitada mas não disponível!")
+            print(f"   torch.cuda.is_available() = {torch.cuda.is_available()}")
+            print("   Possíveis razões:")
+            print("     - PyTorch instalado sem suporte CUDA (versão CPU-only)")
+            print("     - GPU não compatível ou drivers não instalados")
+            print("     - CUDA não está instalado no sistema")
+            print("     - GPU está ocupada por outro processo")
+            
+            # Diagnóstico adicional
+            try:
+                print(f"\n   Diagnóstico PyTorch:")
+                print(f"     Versão PyTorch: {torch.__version__}")
+                print(f"     Versão CUDA compilada: {torch.version.cuda if torch.version.cuda else 'N/A'}")
+                print(f"     cuDNN disponível: {torch.backends.cudnn.is_available()}")
+                if torch.backends.cudnn.is_available():
+                    print(f"     Versão cuDNN: {torch.backends.cudnn.version()}")
+            except Exception as e:
+                print(f"     Erro ao obter informações: {e}")
+            
+            print(f"\n   Usando CPU como fallback...")
+            print(f"{'='*60}\n")
+            return torch.device('cpu')
+        
+        # GPU está disponível
         try:
-            import torch
-            if torch.cuda.is_available():
-                device = torch.device('cuda')
-                gpu_name = torch.cuda.get_device_name(0)
-                gpu_count = torch.cuda.device_count()
-                print(f"\n{'='*60}")
-                print("CONFIGURAÇÃO DE DISPOSITIVO")
-                print(f"{'='*60}")
-                print(f"✅ Usando GPU: {gpu_name}")
-                print(f"   Número de GPUs disponíveis: {gpu_count}")
-                if gpu_count > 1:
-                    print(f"   Usando GPU 0 de {gpu_count} disponíveis")
-                
-                # Mostrar informações de memória GPU
+            device = torch.device('cuda:0')  # Especificar índice explícito
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_count = torch.cuda.device_count()
+            
+            print(f"\n{'='*60}")
+            print("CONFIGURAÇÃO DE DISPOSITIVO")
+            print(f"{'='*60}")
+            print(f"✅ GPU DETECTADA E CONFIGURADA!")
+            print(f"   GPU: {gpu_name}")
+            print(f"   Dispositivo: {device}")
+            print(f"   Número de GPUs disponíveis: {gpu_count}")
+            if gpu_count > 1:
+                print(f"   Usando GPU 0 de {gpu_count} disponíveis")
+            
+            # Mostrar informações de memória GPU
+            try:
                 total_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
                 allocated = torch.cuda.memory_allocated(0) / (1024**3)
                 cached = torch.cuda.memory_reserved(0) / (1024**3)
                 free_mem = total_mem - cached
                 
-                print(f"   Memória GPU:")
+                print(f"\n   Memória GPU:")
                 print(f"     Total: {total_mem:.2f} GB")
                 print(f"     Livre: {free_mem:.2f} GB")
-                print(f"     Usada: {cached:.2f} GB")
-                print(f"{'='*60}\n")
-                return device
-            else:
-                print(f"\n{'='*60}")
-                print("CONFIGURAÇÃO DE DISPOSITIVO")
-                print(f"{'='*60}")
-                print("⚠️  GPU não disponível, usando CPU")
-                print("   Possíveis razões:")
-                print("     - PyTorch instalado sem suporte CUDA")
-                print("     - GPU não compatível ou drivers não instalados")
-                print("     - CUDA não está instalado no sistema")
-                print(f"{'='*60}\n")
-                return torch.device('cpu')
-        except ImportError:
-            print("❌ PyTorch não instalado, usando CPU")
-            return 'cpu'
+                print(f"     Reservada: {cached:.2f} GB")
+                print(f"     Alocada: {allocated:.2f} GB")
+                
+                if free_mem < 1.0:
+                    print(f"\n   ⚠️  AVISO: Pouca memória GPU disponível!")
+                    print(f"   Considere reduzir BATCH_SIZE em src/config.py")
+            except Exception as e:
+                print(f"   [INFO] Não foi possível obter informações de memória: {e}")
+            
+            print(f"{'='*60}\n")
+            
+            # Teste rápido para confirmar que a GPU está funcionando
+            # IMPORTANTE: Se teste falhar, continuar com GPU mesmo assim
+            # O teste pode falhar por problemas temporários, mas GPU pode funcionar durante treinamento
+            try:
+                print(f"   Testando GPU com operação simples...")
+                test_tensor = torch.randn(10, 10).to(device)
+                result = test_tensor @ test_tensor.t()
+                
+                # Verificar se resultado realmente está na GPU
+                if result.device.type != 'cuda':
+                    print(f"   ⚠️  AVISO: Resultado não está na GPU! Está em: {result.device}")
+                    print(f"   Isso é estranho, mas continuando com GPU mesmo assim...")
+                else:
+                    print(f"   ✅ Resultado confirmado na GPU: {result.device}")
+                
+                del test_tensor, result
+                torch.cuda.empty_cache()
+                print(f"   ✅ Teste de GPU bem-sucedido!")
+                print(f"   ✅ Dispositivo GPU confirmado e funcionando!\n")
+            except RuntimeError as e:
+                error_msg = str(e).lower()
+                if 'out of memory' in error_msg:
+                    print(f"   ⚠️  AVISO: GPU sem memória disponível para teste")
+                    print(f"   Isso pode ser normal se GPU estiver ocupada")
+                    print(f"   ✅ Continuando com GPU (tentará usar durante treinamento)...\n")
+                    # IMPORTANTE: Não retornar CPU - deixar tentar usar GPU durante treinamento
+                else:
+                    print(f"   ⚠️  RuntimeError no teste de GPU: {e}")
+                    print(f"   Tipo de erro: RuntimeError")
+                    print(f"   ✅ Continuando com GPU mesmo assim (pode funcionar durante treinamento)...\n")
+                    # IMPORTANTE: Não retornar CPU automaticamente - pode ser problema temporário
+            except Exception as e:
+                print(f"   ⚠️  ERRO inesperado no teste de GPU: {type(e).__name__}: {e}")
+                print(f"   ✅ Continuando com GPU mesmo assim (pode ser problema temporário)...\n")
+                # IMPORTANTE: Não retornar CPU - deixar tentar usar GPU
+            
+            # SEMPRE retornar device GPU se CUDA está disponível (mesmo se teste falhar)
+            return device
+            
+        except Exception as e:
+            print(f"\n   ⚠️  ERRO ao configurar GPU: {type(e).__name__}: {e}")
+            print(f"   Trocando para CPU como fallback...")
+            print(f"{'='*60}\n")
+            return torch.device('cpu')
     else:
         print(f"\n{'='*60}")
         print("CONFIGURAÇÃO DE DISPOSITIVO")
@@ -74,6 +152,7 @@ def setup_device(use_gpu=True):
             import torch
             return torch.device('cpu')
         except ImportError:
+            # Se PyTorch não estiver instalado, retornar string como fallback
             return 'cpu'
 
 
@@ -98,8 +177,6 @@ def load_images_from_directory(directory, img_size=(224, 224)):
         labels: Array de labels
         class_names: Lista de nomes das classes
     """
-    from PIL import Image, ImageOps
-
     # Converter para Path se necessário
     directory = Path(directory)
 

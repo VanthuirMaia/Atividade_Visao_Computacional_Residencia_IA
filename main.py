@@ -218,7 +218,6 @@ def main():
             return
     
     # Verificar se há pelo menos 2 classes nos diretórios
-    from pathlib import Path
     train_dirs = [d for d in current_train_dir.iterdir() if d.is_dir()] if current_train_dir.exists() else []
     
     if len(train_dirs) < 2 and not using_subset:
