@@ -50,11 +50,29 @@ class ClassicPipeline:
         print("Carregando dados de teste...")
         X_test, y_test, _ = load_images_from_directory(self.test_dir)
 
+        # Validar número de classes
+        unique_train_classes = len(np.unique(y_train))
+        unique_test_classes = len(np.unique(y_test)) if len(y_test) > 0 else 0
+        
+        if unique_train_classes < 2:
+            raise ValueError(
+                f"Apenas {unique_train_classes} classe(s) encontrada(s) nos dados de treinamento. "
+                f"São necessárias pelo menos 2 classes para classificação. "
+                f"Classes esperadas: {self.class_names}"
+            )
+
         print(f"Classes encontradas: {self.class_names}")
+        print(f"Classes únicas no treinamento: {unique_train_classes}")
         print(f"Treinamento: {X_train.shape[0]} amostras")
         print(f"Teste: {X_test.shape[0]} amostras")
         print(f"Tamanho das imagens: {X_train.shape[1:]} pixels")
         print(f"Canais: {X_train.shape[3] if len(X_train.shape) > 3 else 1}")
+        
+        # Mostrar distribuição de classes
+        print(f"\nDistribuição de classes no treinamento:")
+        for class_idx, class_name in enumerate(self.class_names):
+            count = np.sum(y_train == class_idx)
+            print(f"  {class_name}: {count} amostras")
 
         # Pré-processamento para modelos clássicos
         print("\nPré-processando imagens...")
@@ -88,6 +106,18 @@ class ClassicPipeline:
             use_random_search: Se True, usa Random Search para otimização
             n_iter: Número de iterações do Random Search
         """
+        # Validar que os dados foram carregados
+        if not hasattr(self, 'X_train') or not hasattr(self, 'y_train'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de treinar.")
+        
+        # Validar número de classes
+        unique_classes = len(np.unique(self.y_train))
+        if unique_classes < 2:
+            raise ValueError(
+                f"Apenas {unique_classes} classe(s) encontrada(s) nos dados de treinamento. "
+                f"SVM requer pelo menos 2 classes. Classes esperadas: {self.class_names}"
+            )
+        
         print("\n" + "="*80)
         print("TREINANDO MODELO: Support Vector Machine (SVM)")
         print("="*80)
@@ -163,6 +193,18 @@ class ClassicPipeline:
             use_random_search: Se True, usa Random Search para otimização
             n_iter: Número de iterações do Random Search
         """
+        # Validar que os dados foram carregados
+        if not hasattr(self, 'X_train') or not hasattr(self, 'y_train'):
+            raise ValueError("Dados não carregados! Chame load_data() antes de treinar.")
+        
+        # Validar número de classes
+        unique_classes = len(np.unique(self.y_train))
+        if unique_classes < 2:
+            raise ValueError(
+                f"Apenas {unique_classes} classe(s) encontrada(s) nos dados de treinamento. "
+                f"Random Forest requer pelo menos 2 classes. Classes esperadas: {self.class_names}"
+            )
+        
         print("\n" + "="*80)
         print("TREINANDO MODELO: Random Forest")
         print("="*80)

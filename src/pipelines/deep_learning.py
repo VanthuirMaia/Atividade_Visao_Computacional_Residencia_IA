@@ -121,6 +121,15 @@ class DeepLearningPipeline:
         print("\n--- Inicialização do Pipeline ---")
         self.memory_monitor.print_status()
         print(f"Lazy Loading: {'Ativado' if self.use_lazy_loading else 'Desativado'}")
+        
+        # Verificar e confirmar dispositivo usado
+        if isinstance(self.device, torch.device):
+            if self.device.type == 'cuda':
+                print(f"✅ Dispositivo confirmado: GPU - {torch.cuda.get_device_name(self.device.index or 0)}")
+            else:
+                print(f"ℹ️  Dispositivo confirmado: CPU")
+        else:
+            print(f"⚠️  Dispositivo: {self.device} (pode ser string)")
 
     def get_transforms(self, is_training=False):
         """
@@ -471,7 +480,7 @@ class DeepLearningPipeline:
         scheduler = None
         if val_loader is not None:
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode='max', factor=0.5, patience=3, verbose=False
+                optimizer, mode='max', factor=0.5, patience=3
             )
 
         best_val_acc = 0.0
@@ -479,9 +488,20 @@ class DeepLearningPipeline:
 
         for epoch in range(epochs):
             model.train()
-            for images, labels in train_loader:
+            for batch_idx, (images, labels) in enumerate(train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
+                
+                # Verificar dispositivo (apenas no primeiro batch da primeira época)
+                if epoch == 0 and batch_idx == 0:
+                    model_device = next(model.parameters()).device
+                    print(f"\n   Verificacao de dispositivo (Random Search):")
+                    print(f"     Modelo: {model_device}")
+                    print(f"     Imagens: {images.device}")
+                    if images.device.type == 'cuda':
+                        print(f"     [OK] Usando GPU: {torch.cuda.get_device_name(images.device.index or 0)}")
+                    else:
+                        print(f"     [INFO] Usando CPU")
 
                 optimizer.zero_grad()
                 outputs = model(images)
@@ -546,7 +566,7 @@ class DeepLearningPipeline:
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=5, verbose=True
+            optimizer, mode='min', factor=0.5, patience=5
         )
 
         history = {'train_loss': [], 'train_acc': []}
@@ -558,10 +578,28 @@ class DeepLearningPipeline:
             correct = 0
             total = 0
 
-            for images, labels in train_loader:
+            for batch_idx, (images, labels) in enumerate(train_loader):
                 try:
                     images = images.to(self.device)
                     labels = labels.to(self.device)
+
+                    # Verificar dispositivo dos dados (apenas no primeiro batch da primeira época)
+                    if epoch == 0 and batch_idx == 0:
+                        model_device = next(model.parameters()).device
+                        print(f"\n   {'='*60}")
+                        print(f"   VERIFICACAO DE DISPOSITIVO (Batch 1, Epoca 1)")
+                        print(f"   {'='*60}")
+                        print(f"   Modelo esta em: {model_device}")
+                        print(f"   Imagens estao em: {images.device}")
+                        print(f"   Labels estao em: {labels.device}")
+                        if images.device.type == 'cuda':
+                            print(f"   [OK] CONFIRMADO: Dados estao na GPU!")
+                            print(f"   GPU: {torch.cuda.get_device_name(images.device.index or 0)}")
+                            mem_used = torch.cuda.memory_allocated() / (1024**2)
+                            print(f"   Memoria GPU em uso: {mem_used:.2f} MB")
+                        else:
+                            print(f"   [INFO] Dados estao na CPU")
+                        print(f"   {'='*60}\n")
 
                     optimizer.zero_grad()
                     outputs = model(images)

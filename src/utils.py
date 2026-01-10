@@ -21,23 +21,55 @@ def setup_device(use_gpu=True):
         use_gpu: Se True, tenta usar GPU, caso contrário usa CPU
 
     Returns:
-        device: Dispositivo configurado
+        device: Dispositivo configurado (torch.device)
     """
     if use_gpu:
         try:
             import torch
             if torch.cuda.is_available():
                 device = torch.device('cuda')
-                print(f"Usando GPU: {torch.cuda.get_device_name(0)}")
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_count = torch.cuda.device_count()
+                print(f"\n{'='*60}")
+                print("CONFIGURAÇÃO DE DISPOSITIVO")
+                print(f"{'='*60}")
+                print(f"✅ Usando GPU: {gpu_name}")
+                print(f"   Número de GPUs disponíveis: {gpu_count}")
+                if gpu_count > 1:
+                    print(f"   Usando GPU 0 de {gpu_count} disponíveis")
+                
+                # Mostrar informações de memória GPU
+                total_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                allocated = torch.cuda.memory_allocated(0) / (1024**3)
+                cached = torch.cuda.memory_reserved(0) / (1024**3)
+                free_mem = total_mem - cached
+                
+                print(f"   Memória GPU:")
+                print(f"     Total: {total_mem:.2f} GB")
+                print(f"     Livre: {free_mem:.2f} GB")
+                print(f"     Usada: {cached:.2f} GB")
+                print(f"{'='*60}\n")
                 return device
             else:
-                print("GPU não disponível, usando CPU")
+                print(f"\n{'='*60}")
+                print("CONFIGURAÇÃO DE DISPOSITIVO")
+                print(f"{'='*60}")
+                print("⚠️  GPU não disponível, usando CPU")
+                print("   Possíveis razões:")
+                print("     - PyTorch instalado sem suporte CUDA")
+                print("     - GPU não compatível ou drivers não instalados")
+                print("     - CUDA não está instalado no sistema")
+                print(f"{'='*60}\n")
                 return torch.device('cpu')
         except ImportError:
-            print("PyTorch não instalado, usando CPU")
+            print("❌ PyTorch não instalado, usando CPU")
             return 'cpu'
     else:
-        print("Usando CPU (configurado manualmente)")
+        print(f"\n{'='*60}")
+        print("CONFIGURAÇÃO DE DISPOSITIVO")
+        print(f"{'='*60}")
+        print("ℹ️  Usando CPU (configurado manualmente)")
+        print(f"{'='*60}\n")
         try:
             import torch
             return torch.device('cpu')
@@ -171,7 +203,56 @@ def load_images_from_directory(directory, img_size=(224, 224)):
     if len(images) == 0:
         raise ValueError(f"Nenhuma imagem válida foi carregada de {directory}")
 
-    return np.array(images), np.array(labels), class_names
+    # Converter para arrays numpy
+    images_array = np.array(images)
+    labels_array = np.array(labels)
+    
+    # Verificar quantas classes únicas foram carregadas
+    unique_labels = np.unique(labels_array)
+    num_classes_loaded = len(unique_labels)
+    
+    # Estatísticas por classe
+    print(f"\nDistribuição de classes carregadas:")
+    for label_idx in unique_labels:
+        count = np.sum(labels_array == label_idx)
+        class_name = class_names[label_idx] if label_idx < len(class_names) else f"Classe {label_idx}"
+        print(f"  {class_name} (label {label_idx}): {count} imagens")
+    
+    # Validar que temos pelo menos 2 classes
+    if num_classes_loaded < 2:
+        available_classes = [class_names[i] for i in unique_labels] if unique_labels.size > 0 else []
+        missing_classes = [class_names[i] for i in range(len(class_names)) if i not in unique_labels]
+        
+        error_msg = (
+            f"\nERRO: Apenas {num_classes_loaded} classe(s) foi(ram) carregada(s), "
+            f"mas são necessárias pelo menos 2 classes para classificação.\n"
+            f"Classes disponíveis no diretório: {class_names}\n"
+            f"Classes com imagens válidas: {available_classes}\n"
+        )
+        if missing_classes:
+            error_msg += f"Classes sem imagens válidas: {missing_classes}\n"
+        error_msg += (
+            f"\nPossíveis causas:\n"
+            f"1. Apenas uma classe tem imagens válidas no diretório {directory}\n"
+            f"2. Todas as imagens de outras classes foram rejeitadas (muito pequenas, corrompidas, etc.)\n"
+            f"3. Estrutura de diretórios incorreta\n"
+            f"\nVerifique:\n"
+            f"- Se há subpastas com nomes de classes em {directory}\n"
+            f"- Se cada subpasta contém imagens válidas (JPG, PNG, JPEG)\n"
+            f"- Se as imagens têm tamanho mínimo de 32x32 pixels"
+        )
+        raise ValueError(error_msg)
+    
+    # Verificar se temos imagens suficientes por classe (pelo menos 1)
+    for label_idx in unique_labels:
+        count = np.sum(labels_array == label_idx)
+        if count == 0:
+            class_name = class_names[label_idx] if label_idx < len(class_names) else f"Classe {label_idx}"
+            raise ValueError(
+                f"Classe '{class_name}' (label {label_idx}) não tem imagens válidas após processamento."
+            )
+    
+    return images_array, labels_array, class_names
 
 
 def preprocess_images_classic(images):

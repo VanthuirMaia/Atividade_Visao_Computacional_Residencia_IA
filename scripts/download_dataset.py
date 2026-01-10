@@ -88,24 +88,56 @@ def find_class_directories(dataset_path):
     """
     class_dirs = []
     possible_class_names = ['ai', 'human', 'ai-art', 'human-art', 'ai_art', 'human_art',
-                           'AI', 'Human', 'AI-Art', 'Human-Art']
-
-    for root, dirs, files in os.walk(dataset_path):
-        image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-
-        if image_files:
-            dir_name = os.path.basename(root).lower()
-            for class_name in possible_class_names:
-                if class_name.lower() in dir_name:
-                    class_dirs.append(root)
-                    break
-
+                           'AI', 'Human', 'AI-Art', 'Human-Art', 'aiartdata', 'realart',
+                           'AiArtData', 'RealArt', 'aiart', 'real']
+    
+    # Primeiro, verificar estrutura comum: subdiretórios diretos
+    dataset_path = Path(dataset_path)
+    if dataset_path.exists():
+        for item in dataset_path.iterdir():
+            if item.is_dir():
+                # Verificar se contém imagens diretamente ou em subpastas
+                image_count = 0
+                for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']:
+                    image_count += len(list(item.rglob(f'*{ext}')))
+                    image_count += len(list(item.rglob(f'*{ext.upper()}')))
+                
+                if image_count > 0:
+                    # Verificar nome da classe
+                    dir_name_lower = item.name.lower()
+                    is_class_dir = any(
+                        class_name.lower() in dir_name_lower or dir_name_lower in class_name.lower()
+                        for class_name in possible_class_names
+                    ) or len([d for d in dataset_path.iterdir() if d.is_dir()]) <= 5
+                    
+                    if is_class_dir and item not in class_dirs:
+                        class_dirs.append(item)
+    
+    # Se não encontrou, procurar recursivamente
     if not class_dirs:
         for root, dirs, files in os.walk(dataset_path):
-            image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-            if image_files and root != dataset_path:
-                class_dirs.append(root)
-
+            image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))]
+            if image_files and Path(root) != dataset_path:
+                root_path = Path(root)
+                # Evitar adicionar subpastas de classes já encontradas
+                is_subfolder = False
+                for cd in class_dirs:
+                    if isinstance(cd, Path):
+                        try:
+                            is_subfolder = root_path.is_relative_to(cd)
+                        except AttributeError:
+                            # Python < 3.9 não tem is_relative_to
+                            is_subfolder = str(root_path).startswith(str(cd))
+                        if is_subfolder:
+                            break
+                
+                if not is_subfolder and root_path not in class_dirs:
+                    class_dirs.append(root_path)
+    
+    # Remover duplicatas e ordenar
+    class_dirs = list(set(class_dirs))
+    class_dirs = sorted([Path(cd) for cd in class_dirs])
+    
     return class_dirs
 
 
@@ -136,8 +168,44 @@ def organize_dataset(dataset_path, train_split=TRAIN_SPLIT, test_split=TEST_SPLI
 
     if not class_dirs:
         raise ValueError("Não foi possível encontrar classes no dataset.")
+    
+    if len(class_dirs) < 2:
+        print(f"\nAVISO: Apenas {len(class_dirs)} classe(s) encontrada(s)!")
+        print("Estrutura do dataset:")
+        for item in os.listdir(dataset_path):
+            item_path = os.path.join(dataset_path, item)
+            if os.path.isdir(item_path):
+                image_count = sum(1 for f in os.listdir(item_path) 
+                                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')))
+                print(f"  {item}: {image_count} imagens")
+        
+        print("\nTentando estrutura alternativa...")
+        # Tentar estrutura plana: todas as imagens em um diretório
+        # Ou estrutura com subpastas diferentes
+        
+        # Verificar se há subpastas que podem ser classes
+        all_subdirs = []
+        for root, dirs, files in os.walk(dataset_path):
+            for d in dirs:
+                subdir = Path(root) / d
+                image_files = [f for f in subdir.iterdir() 
+                              if f.is_file() and f.suffix.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']]
+                if image_files and subdir not in class_dirs:
+                    all_subdirs.append(subdir)
+        
+        if len(all_subdirs) >= 2:
+            print(f"Encontradas {len(all_subdirs)} subpastas com imagens, usando-as como classes.")
+            class_dirs = all_subdirs[:2]  # Usar as primeiras 2
+        else:
+            raise ValueError(
+                f"Apenas {len(class_dirs)} classe(s) encontrada(s). "
+                f"O dataset deve ter pelo menos 2 classes para classificação. "
+                f"Verifique a estrutura do dataset baixado."
+            )
 
     print(f"\nClasses encontradas: {len(class_dirs)}")
+    for i, cd in enumerate(class_dirs):
+        print(f"  {i+1}. {cd.name}")
 
     for class_dir in class_dirs:
         class_name = os.path.basename(class_dir)
