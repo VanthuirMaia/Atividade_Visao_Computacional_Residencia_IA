@@ -48,23 +48,141 @@ def count_images(train_dir=None, test_dir=None):
     
     stats = {'train': {}, 'test': {}}
 
+    # Extensões de imagem suportadas (mesmas do utils.py e add_images_to_dataset.py)
+    IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.jfif']
+    
     if train_dir.exists():
         for class_dir in train_dir.iterdir():
             if class_dir.is_dir():
-                count = len(list(class_dir.glob('*.[jJ][pP][gG]')) +
-                           list(class_dir.glob('*.[jJ][pP][eE][gG]')) +
-                           list(class_dir.glob('*.[pP][nN][gG]')))
+                # Contar todas as imagens com extensões suportadas
+                count = 0
+                for img_path in class_dir.iterdir():
+                    if img_path.is_file() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+                        count += 1
                 stats['train'][class_dir.name] = count
 
     if test_dir.exists():
         for class_dir in test_dir.iterdir():
             if class_dir.is_dir():
-                count = len(list(class_dir.glob('*.[jJ][pP][gG]')) +
-                           list(class_dir.glob('*.[jJ][pP][eE][gG]')) +
-                           list(class_dir.glob('*.[pP][nN][gG]')))
+                # Contar todas as imagens com extensões suportadas
+                count = 0
+                for img_path in class_dir.iterdir():
+                    if img_path.is_file() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+                        count += 1
                 stats['test'][class_dir.name] = count
 
     return stats
+
+
+def classify_new_image():
+    """
+    Função para classificar uma nova imagem usando os modelos treinados
+    """
+    try:
+        # Tentar importar funções do classify_image
+        import sys
+        from pathlib import Path
+        
+        # Adicionar caminho do classify_image ao path se necessário
+        classify_image_path = Path(__file__).parent / 'classify_image.py'
+        if not classify_image_path.exists():
+            print("\n❌ ERRO: Arquivo classify_image.py não encontrado!")
+            return
+        
+        # Importar função de seleção de imagem
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            TKINTER_AVAILABLE = True
+        except ImportError:
+            TKINTER_AVAILABLE = False
+        
+        print("\n" + "="*60)
+        print("CLASSIFICAR NOVA IMAGEM")
+        print("="*60)
+        
+        # Selecionar imagem
+        if TKINTER_AVAILABLE:
+            print("\n📁 Abrindo seletor de arquivo...")
+            root = tk.Tk()
+            root.withdraw()  # Esconder janela principal
+            root.attributes('-topmost', True)  # Trazer para frente
+            
+            image_path = filedialog.askopenfilename(
+                title="Selecione uma imagem para classificar",
+                filetypes=[
+                    ("Imagens", "*.jpg *.jpeg *.png *.bmp *.gif *.jfif"),
+                    ("JPEG", "*.jpg *.jpeg"),
+                    ("PNG", "*.png"),
+                    ("Todos os arquivos", "*.*")
+                ]
+            )
+            
+            root.destroy()
+            
+            if not image_path:
+                print("\n⚠️  Nenhuma imagem selecionada. Cancelando...")
+                return
+            
+            image_path = Path(image_path)
+        else:
+            # Fallback: pedir caminho via input
+            print("\nDigite o caminho completo da imagem:")
+            print("(Exemplo: C:/Users/Usuario/Desktop/imagem.jpg)")
+            image_path_str = input("Caminho: ").strip().strip('"').strip("'")
+            
+            if not image_path_str:
+                print("\n⚠️  Caminho vazio. Cancelando...")
+                return
+            
+            image_path = Path(image_path_str)
+        
+        # Verificar se arquivo existe
+        if not image_path.exists():
+            print(f"\n❌ ERRO: Arquivo não encontrado: {image_path}")
+            return
+        
+        if not image_path.is_file():
+            print(f"\n❌ ERRO: O caminho especificado não é um arquivo: {image_path}")
+            return
+        
+        # Verificar extensão
+        valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.jfif']
+        if image_path.suffix.lower() not in valid_extensions:
+            print(f"\n⚠️  AVISO: Extensão '{image_path.suffix}' pode não ser suportada.")
+            print(f"Extensões suportadas: {', '.join(valid_extensions)}")
+            resposta = input("\nDeseja continuar mesmo assim? (s/n): ").strip().lower()
+            if resposta != 's':
+                return
+        
+        # Importar e executar classificação
+        print(f"\n✅ Imagem selecionada: {image_path}")
+        print("\nClassificando imagem...")
+        print("="*60)
+        
+        # Importar funções do classify_image
+        sys.path.insert(0, str(Path(__file__).parent))
+        from classify_image import classify_with_all_models, print_all_models_results
+        
+        # Classificar usando todos os modelos
+        try:
+            final_prediction, final_confidence, results = classify_with_all_models(str(image_path))
+            print_all_models_results(final_prediction, final_confidence, results)
+        except FileNotFoundError as e:
+            print(f"\n❌ ERRO: {e}")
+            print("\n💡 Dica: Execute o pipeline de treinamento primeiro para gerar os modelos.")
+            print("   Escolha a opção 1, 2 ou 3 do menu principal.")
+        except Exception as e:
+            print(f"\n❌ ERRO ao classificar imagem: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+        
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Operação cancelada pelo usuário.")
+    except Exception as e:
+        print(f"\n❌ ERRO inesperado: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def print_data_info(train_dir=None, test_dir=None):
@@ -271,34 +389,63 @@ def main():
     # Mostrar informações dos dados
     print_data_info(current_train_dir, current_test_dir)
 
-    # Menu principal
-    print("\nEscolha o pipeline a ser executado:")
-    print("1. Pipeline Clássico (SVM + Random Forest)")
-    print("2. Pipeline Deep Learning (CNN + ResNet)")
-    print("3. Ambos os pipelines")
-    print("4. Sair")
+    # Menu principal em loop
+    while True:
+        print("\n" + "="*60)
+        print("MENU PRINCIPAL")
+        print("="*60)
+        print("Escolha uma opção:")
+        print("1. Pipeline Clássico (SVM + Random Forest)")
+        print("2. Pipeline Deep Learning (CNN + ResNet)")
+        print("3. Ambos os pipelines")
+        print("4. Classificar Nova Imagem")
+        print("5. Sair")
 
-    opcao = input("\nEscolha uma opção (1-4): ").strip()
+        opcao = input("\nEscolha uma opção (1-5): ").strip()
 
-    if opcao == '1':
-        run_classic_pipeline(current_train_dir, current_test_dir)
-    elif opcao == '2':
-        run_deep_learning_pipeline(current_train_dir, current_test_dir)
-    elif opcao == '3':
-        run_classic_pipeline(current_train_dir, current_test_dir)
-        run_deep_learning_pipeline(current_train_dir, current_test_dir)
-    elif opcao == '4':
-        print("\nSaindo...")
-    else:
-        print("\nOpção inválida!")
-
-    print("\n" + "="*60)
-    print("PROJETO CONCLUÍDO!")
-    print("="*60)
-    print("Resultados salvos em:")
-    print("  - outputs/results/")
-    print("  - outputs/models/")
-    print("  - outputs/figures/")
+        if opcao == '1':
+            print("\n" + "="*60)
+            run_classic_pipeline(current_train_dir, current_test_dir)
+            print("\n" + "="*60)
+            print("Pipeline Clássico concluído!")
+            print("Resultados salvos em:")
+            print("  - outputs/results/classic_pipeline_results.csv")
+            print("  - outputs/models/")
+            print("  - outputs/figures/")
+            print("="*60)
+        elif opcao == '2':
+            print("\n" + "="*60)
+            run_deep_learning_pipeline(current_train_dir, current_test_dir)
+            print("\n" + "="*60)
+            print("Pipeline Deep Learning concluído!")
+            print("Resultados salvos em:")
+            print("  - outputs/results/deep_learning_results.csv")
+            print("  - outputs/models/")
+            print("  - outputs/figures/")
+            print("="*60)
+        elif opcao == '3':
+            print("\n" + "="*60)
+            run_classic_pipeline(current_train_dir, current_test_dir)
+            print("\n" + "="*60)
+            run_deep_learning_pipeline(current_train_dir, current_test_dir)
+            print("\n" + "="*60)
+            print("Todos os pipelines concluídos!")
+            print("Resultados salvos em:")
+            print("  - outputs/results/")
+            print("  - outputs/models/")
+            print("  - outputs/figures/")
+            print("="*60)
+        elif opcao == '4':
+            # Classificar nova imagem
+            classify_new_image()
+        elif opcao == '5':
+            print("\n" + "="*60)
+            print("Saindo...")
+            print("Obrigado por usar o sistema de classificação!")
+            print("="*60)
+            break
+        else:
+            print("\n❌ Opção inválida! Escolha uma opção entre 1 e 5.")
 
 
 if __name__ == "__main__":
