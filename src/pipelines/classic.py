@@ -270,13 +270,27 @@ class ClassicPipeline:
                 svm = LinearSVC(random_state=42, max_iter=2000)
             else:
                 # SVC tradicional: múltiplos kernels
-                param_distributions = {
-                    'C': loguniform(0.01, 100),
-                    'gamma': loguniform(0.0001, 1),
-                    'kernel': ['rbf', 'linear', 'poly'],
-                    'degree': randint(2, 5),
-                    'class_weight': [None, 'balanced']
-                }
+                # Ajustar espaço de busca baseado no número de features
+                n_features = self.X_train.shape[1]
+                
+                if n_features > 1000:
+                    # Imagens maiores (128×128 ou 224×224): gamma menor, C pode ser maior
+                    param_distributions = {
+                        'C': loguniform(0.1, 1000),  # Ampliado para imagens maiores
+                        'gamma': loguniform(0.00001, 0.1),  # Range menor para imagens maiores
+                        'kernel': ['rbf', 'linear', 'poly'],
+                        'degree': randint(2, 5),
+                        'class_weight': [None, 'balanced']
+                    }
+                else:
+                    # Imagens menores (64×64): espaço de busca padrão
+                    param_distributions = {
+                        'C': loguniform(0.01, 100),
+                        'gamma': loguniform(0.0001, 1),
+                        'kernel': ['rbf', 'linear', 'poly'],
+                        'degree': randint(2, 5),
+                        'class_weight': [None, 'balanced']
+                    }
                 svm = SVC(random_state=42)
             
             random_search = RandomizedSearchCV(

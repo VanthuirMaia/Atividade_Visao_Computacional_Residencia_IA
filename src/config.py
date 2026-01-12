@@ -25,8 +25,11 @@ TRAIN_SPLIT = 0.7  # Proporção de dados para treinamento
 TEST_SPLIT = 0.3   # Proporção de dados para teste
 
 # Tamanho das imagens
-IMG_SIZE = (224, 224)  # Tamanho padrão para modelos de deep learning
-IMG_SIZE_CLASSIC = (64, 64)  # Tamanho menor para modelos clássicos (economiza memória)
+IMG_SIZE = (128, 128)  # Tamanho padrão para modelos de deep learning
+IMG_SIZE_CLASSIC = (128, 128)  # Tamanho otimizado para modelos clássicos (balance entre qualidade e memória)
+# Nota: 128×128 = 49,152 features (otimizado)
+#       224×224 = 150,528 features (muito grande, desperdiça memória)
+#       64×64 = 12,288 features (pode perder detalhes importantes)
 IMG_CHANNELS = 3  # RGB
 
 # Configurações de treinamento
@@ -83,10 +86,11 @@ USE_MIXED_PRECISION = False  # Não implementado ainda
 
 # Batch sizes para Random Search do ResNet50 (reduzidos para evitar estouro de memória)
 # ResNet50 é um modelo muito grande (25M+ parâmetros) e precisa de batch sizes menores
-RESNET50_BATCH_SIZES = [8, 16, 32]  # Reduzido de [16, 32, 64] para economizar memória
+# Reduzido ainda mais para GPU com 8GB: [4, 8] - valores maiores podem causar OOM
+RESNET50_BATCH_SIZES = [4, 8]  # Reduzido de [8, 16, 32] para economizar memória GPU
 
 # Batch size padrão para ResNet50 (se não usar Random Search)
-RESNET50_DEFAULT_BATCH_SIZE = 16  # Reduzido de 32
+RESNET50_DEFAULT_BATCH_SIZE = 8  # Reduzido de 16 para economizar memória
 
 # Épocas para Random Search do ResNet50 (reduzidas para economizar memória)
 RESNET50_SEARCH_EPOCHS = 10  # Número máximo de épocas durante Random Search
@@ -100,7 +104,10 @@ RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS = True  # IMPORTANTE: Limpar entre iter
 
 # Configurações de memória para modelos clássicos (SVM, Random Forest)
 CLASSIC_USE_PCA = True  # Usar PCA para redução de dimensionalidade antes do SVM
-CLASSIC_PCA_COMPONENTS = 500  # Número de componentes PCA (None = auto, reduz para 95% variância)
+CLASSIC_PCA_COMPONENTS = 800  # Número de componentes PCA (None = auto, reduz para 95% variância)
+# Ajustado para 800 componentes para melhor aproveitamento de imagens 128×128
+# Com 128×128: 49,152 features → 800 componentes (98.4% redução, mantém mais informação)
+# Com 500 componentes: 99% redução (pode perder informação relevante)
 CLASSIC_USE_LINEAR_SVM = False  # Usar LinearSVC ao invés de SVC (mais eficiente em memória, mas apenas kernel linear)
 CLASSIC_MAX_SAMPLES = None  # Limitar número de amostras para treinamento (None = usar todas)
 CLASSIC_SVM_N_JOBS = 1  # Jobs paralelos para SVM (1 = sem paralelização para economizar memória)

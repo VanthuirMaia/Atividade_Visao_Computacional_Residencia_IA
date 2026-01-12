@@ -12,6 +12,7 @@ from datetime import timedelta
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms, models
 
@@ -171,24 +172,29 @@ class DeepLearningPipeline:
                         self.device = torch.device('cuda:0')
                         print(f"      ✅ Dispositivo forçado para: {self.device}")
             else:
-                print(f"   ℹ️  DISPOSITIVO CONFIRMADO: CPU ({self.device})")
+                print(f"   ℹ️  DISPOSITIVO INICIAL: CPU ({self.device})")
                 if use_gpu and torch.cuda.is_available():
-                    print(f"   ⚠️  ATENÇÃO: GPU foi solicitada e está disponível, mas dispositivo é CPU!")
-                    print(f"      Possíveis razões:")
-                    print(f"      1. Teste de GPU falhou durante setup_device()")
-                    print(f"      2. Erro ao acessar GPU")
-                    print(f"      3. GPU sem memória disponível")
-                    print(f"      Tentando forçar uso de GPU...")
+                    print(f"   ⚠️  ATENÇÃO: GPU foi solicitada e está disponível, mas dispositivo retornado foi CPU!")
+                    print(f"      Forçando uso de GPU (CUDA disponível)...")
                     try:
-                        # Tentar forçar GPU novamente
-                        test_tensor = torch.randn(1, 1).to(torch.device('cuda:0'))
+                        # SEMPRE forçar GPU se CUDA está disponível
+                        self.device = torch.device('cuda:0')
+                        # Testar se GPU funciona
+                        test_tensor = torch.randn(1, 1).to(self.device)
                         del test_tensor
                         torch.cuda.empty_cache()
-                        self.device = torch.device('cuda:0')
-                        print(f"      ✅ GPU forçada com sucesso! Dispositivo: {self.device}")
+                        gpu_name = torch.cuda.get_device_name(0)
+                        print(f"      ✅ GPU FORÇADA COM SUCESSO!")
+                        print(f"      Dispositivo: {self.device}")
+                        print(f"      GPU: {gpu_name}")
                     except Exception as e:
-                        print(f"      ❌ Não foi possível forçar GPU: {e}")
-                        print(f"      Continuando com CPU...")
+                        print(f"      ⚠️  Erro ao forçar GPU: {e}")
+                        print(f"      Tentando continuar mesmo assim...")
+                        # Tentar usar GPU mesmo com erro
+                        self.device = torch.device('cuda:0')
+                        print(f"      Dispositivo definido para: {self.device}")
+                else:
+                    print(f"   ℹ️  DISPOSITIVO CONFIRMADO: CPU ({self.device})")
         
         print(f"   {'='*60}\n")
 
@@ -575,6 +581,10 @@ class DeepLearningPipeline:
                 outputs = model(images)
                 loss = criterion(outputs, labels)
                 loss.backward()
+                
+                # Gradient clipping para prevenir gradientes explodindo (evita NaN loss)
+                clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
                 optimizer.step()
 
             # Validação (ou usar treinamento se não houver validação)
@@ -694,9 +704,21 @@ class DeepLearningPipeline:
                     outputs = model(images)
                     loss = criterion(outputs, labels)
                     loss.backward()
+                    
+                    # Gradient clipping para prevenir gradientes explodindo (evita NaN loss)
+                    clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    
                     optimizer.step()
 
-                    running_loss += loss.item()
+                    # Verificar se loss é NaN antes de acumular
+                    loss_value = loss.item()
+                    if not np.isfinite(loss_value):
+                        print(f"\n   ⚠️  AVISO: Loss NaN ou Inf detectado na época {epoch+1}, batch {batch_idx+1}!")
+                        print(f"      Learning rate: {learning_rate:.6f}")
+                        print(f"      Pulando este batch...")
+                        continue
+                    
+                    running_loss += loss_value
                     _, predicted = torch.max(outputs.data, 1)
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()

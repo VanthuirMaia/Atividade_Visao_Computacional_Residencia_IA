@@ -61,9 +61,10 @@ def setup_device(use_gpu=True):
             print(f"{'='*60}\n")
             return torch.device('cpu')
         
-        # GPU está disponível
+        # GPU está disponível - SEMPRE usar GPU se CUDA está disponível
+        device = torch.device('cuda:0')  # Sempre usar cuda:0 se CUDA disponível
+        
         try:
-            device = torch.device('cuda:0')  # Especificar índice explícito
             gpu_name = torch.cuda.get_device_name(0)
             gpu_count = torch.cuda.device_count()
             
@@ -98,9 +99,7 @@ def setup_device(use_gpu=True):
             
             print(f"{'='*60}\n")
             
-            # Teste rápido para confirmar que a GPU está funcionando
-            # IMPORTANTE: Se teste falhar, continuar com GPU mesmo assim
-            # O teste pode falhar por problemas temporários, mas GPU pode funcionar durante treinamento
+            # Teste rápido para confirmar que a GPU está funcionando (opcional, não bloqueia)
             try:
                 print(f"   Testando GPU com operação simples...")
                 test_tensor = torch.randn(10, 10).to(device)
@@ -109,39 +108,28 @@ def setup_device(use_gpu=True):
                 # Verificar se resultado realmente está na GPU
                 if result.device.type != 'cuda':
                     print(f"   ⚠️  AVISO: Resultado não está na GPU! Está em: {result.device}")
-                    print(f"   Isso é estranho, mas continuando com GPU mesmo assim...")
+                    print(f"   Continuando mesmo assim...")
                 else:
                     print(f"   ✅ Resultado confirmado na GPU: {result.device}")
                 
                 del test_tensor, result
                 torch.cuda.empty_cache()
-                print(f"   ✅ Teste de GPU bem-sucedido!")
-                print(f"   ✅ Dispositivo GPU confirmado e funcionando!\n")
-            except RuntimeError as e:
-                error_msg = str(e).lower()
-                if 'out of memory' in error_msg:
-                    print(f"   ⚠️  AVISO: GPU sem memória disponível para teste")
-                    print(f"   Isso pode ser normal se GPU estiver ocupada")
-                    print(f"   ✅ Continuando com GPU (tentará usar durante treinamento)...\n")
-                    # IMPORTANTE: Não retornar CPU - deixar tentar usar GPU durante treinamento
-                else:
-                    print(f"   ⚠️  RuntimeError no teste de GPU: {e}")
-                    print(f"   Tipo de erro: RuntimeError")
-                    print(f"   ✅ Continuando com GPU mesmo assim (pode funcionar durante treinamento)...\n")
-                    # IMPORTANTE: Não retornar CPU automaticamente - pode ser problema temporário
+                print(f"   ✅ Teste de GPU bem-sucedido!\n")
             except Exception as e:
-                print(f"   ⚠️  ERRO inesperado no teste de GPU: {type(e).__name__}: {e}")
-                print(f"   ✅ Continuando com GPU mesmo assim (pode ser problema temporário)...\n")
-                # IMPORTANTE: Não retornar CPU - deixar tentar usar GPU
+                # Se teste falhar, CONTINUAR com GPU mesmo assim
+                print(f"   ⚠️  Teste de GPU falhou: {e}")
+                print(f"   ✅ Continuando com GPU mesmo assim (pode funcionar durante treinamento)...\n")
             
-            # SEMPRE retornar device GPU se CUDA está disponível (mesmo se teste falhar)
+            # SEMPRE retornar device GPU se CUDA está disponível
             return device
             
         except Exception as e:
-            print(f"\n   ⚠️  ERRO ao configurar GPU: {type(e).__name__}: {e}")
-            print(f"   Trocando para CPU como fallback...")
+            # Mesmo se houver erro ao obter info da GPU, usar GPU se CUDA disponível
+            print(f"\n   ⚠️  ERRO ao obter informações da GPU: {type(e).__name__}: {e}")
+            print(f"   Mas CUDA está disponível, usando GPU mesmo assim...")
+            print(f"   Dispositivo: {device}")
             print(f"{'='*60}\n")
-            return torch.device('cpu')
+            return device  # Retornar GPU mesmo com erro
     else:
         print(f"\n{'='*60}")
         print("CONFIGURAÇÃO DE DISPOSITIVO")
@@ -204,7 +192,7 @@ def load_images_from_directory(directory, img_size=(224, 224)):
             stats['total'] += 1
 
             # Verificar se é arquivo de imagem
-            if img_path.suffix.lower() not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']:
+            if img_path.suffix.lower() not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.jfif']:
                 continue
 
             try:

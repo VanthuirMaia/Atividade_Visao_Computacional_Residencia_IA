@@ -3,7 +3,30 @@
 
 > **Este README consolida TODA a documentação do projeto**, incluindo toda a história de desenvolvimento, erros encontrados, correções implementadas, otimizações, mudanças de parâmetros, ajustes de métodos, e exemplos de código específicos com explicações detalhadas.
 
-**Versão do Projeto**: 1.0.1 **Última Atualização**: 2025 **Status**: Estável e Otimizado
+**Versão do Projeto**: 1.0.4 **Última Atualização**: 11 de janeiro de 2026 **Status**: Estável e Otimizado
+
+### 🆕 Novidades na Versão 1.0.4
+
+- 🚀 **Otimizações Modelos Clássicos**: Melhorias significativas nos modelos SVM e Random Forest
+  - Tamanho de imagem corrigido para `128×128` (otimizado)
+  - PCA aumentado para 800 componentes (melhor preservação de informação)
+  - Random Search aumentado para 100 iterações (melhor otimização)
+  - Espaço de busca do SVM ajustado dinamicamente baseado no número de features
+- 📈 **Melhorias de Performance**: Resultados esperados de 70-72% para SVM e 68-70% para Random Forest
+
+### 🆕 Novidades na Versão 1.0.3
+
+- ➕ **Novo Script de Adição de Imagens**: Script `scripts/add_images_to_dataset.py` para adicionar imagens externas ao dataset
+- 🖼️ **Suporte para Extensão .jfif**: Adicionado suporte completo para imagens `.jfif` em todos os processamentos
+- 🛡️ **Correção Loss NaN**: Gradient clipping e verificação de NaN implementados para prevenir gradientes explodindo
+- 🔧 **Melhorias de Estabilidade**: Prevenção de valores NaN durante treinamento de modelos deep learning
+
+### 🆕 Novidades na Versão 1.0.2
+
+- 🔧 **Otimização de Memória ResNet50**: Batch sizes reduzidos para `[4, 8]` para evitar OOM em GPU 8GB
+- 📈 **Melhoria Modelos Clássicos**: Tamanho de imagem aumentado para `128×128` para melhor qualidade
+- 📊 **Histórico de Treinamentos**: Novo arquivo `TRAINING_HISTORY.md` com histórico completo de resultados
+- 🐛 **Correção GPU**: Correções para garantir uso de GPU em modelos deep learning
 
 ### 🆕 Novidades na Versão 1.0.1
 
@@ -47,6 +70,7 @@ Projeto completo de classificação de imagens (AI Art vs Human Art) utilizando 
 ├── classify_image.py # 🆕 Script de classificação com interface gráfica
 ├── requirements.txt # Todas as dependências do projeto
 ├── README.md # Este arquivo - documentação completa consolidada
+├── TRAINING_HISTORY.md # 📊 Histórico completo de todos os resultados de execução com data/hora
 │
 ├── Scripts de Diagnóstico/
 │ ├── diagnose_data.py # Diagnóstico da estrutura de dados
@@ -76,6 +100,7 @@ Projeto completo de classificação de imagens (AI Art vs Human Art) utilizando 
 │ ├── __init__.py
 │ ├── download_dataset.py # Download automático do dataset Kaggle
 │ ├── create_subset.py # Criação de subset para testes rápidos
+│ ├── add_images_to_dataset.py # ➕ Adicionar imagens externas ao dataset
 │ └── load_model_example.py # Exemplo de como carregar modelos salvos
 │
 ├── data/ # Dados (ignorado pelo git)
@@ -176,7 +201,33 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau( optimizer, mode='min', factor=
 
 **Impacto**:  Compatível com todas as versões do PyTorch
 
---- **Problema 2.2: AttributeError com setup_device**
+--- **Problema 2.2: Loss NaN Durante Treinamento**
+- **Erro**: `Loss: nan` aparecendo durante treinamento de modelos deep learning
+- **Causa**: Gradientes explodindo devido a learning rate muito alto ou falta de clipping
+- **Localização**: `src/pipelines/deep_learning.py`, funções `train_model()` e `train_single_config()`
+- **Correção Implementada**:
+
+```python
+# src/pipelines/deep_learning.py - CORREÇÃO (linha 709):
+loss.backward()
+
+# Gradient clipping para prevenir gradientes explodindo (evita NaN loss)
+clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+optimizer.step()
+
+# Verificar se loss é NaN antes de acumular
+loss_value = loss.item()
+if not np.isfinite(loss_value):
+    print(f"\n   ⚠️  AVISO: Loss NaN ou Inf detectado na época {epoch+1}, batch {batch_idx+1}!")
+    print(f"      Learning rate: {learning_rate:.6f}")
+    print(f"      Pulando este batch...")
+    continue
+```
+
+**Impacto**:  Previne valores NaN, torna treinamento mais estável mesmo com learning rates altos
+
+--- **Problema 2.3: AttributeError com setup_device**
 - **Erro**: `AttributeError: 'str' object has no attribute 'type'`
 - **Causa**: Função `setup_device()` poderia retornar string `'cpu'` ao invés de `torch.device('cpu')`
 - **Localização**: `src/utils.py`, função `setup_device()` e `src/pipelines/deep_learning.py`
@@ -207,7 +258,7 @@ elif not isinstance(self.device, torch.device): print(f" Tipo desconhecido, usan
 
 **Impacto**:  Dispositivo sempre é objeto `torch.device`, evitando erros de atributo
 
---- **Problema 2.3: Modelos Não Estavam Usando GPU**
+--- **Problema 2.4: Modelos Não Estavam Usando GPU**
 - **Erro**: Modelos deep learning executavam na CPU mesmo com GPU disponível
 - **Causa**: Modelos não eram movidos explicitamente para GPU após criação
 - **Localização**: Múltiplas funções em `src/pipelines/deep_learning.py`
@@ -281,6 +332,23 @@ def train_model(self, model, train_loader, epochs, learning_rate, model_name): #
 
 **Impacto**:  Todos os modelos agora usam GPU automaticamente quando disponível
 
+--- **Problema 2.5: Suporte Limitado para Formatos de Imagem**
+- **Problema**: Sistema não suportava formato `.jfif`
+- **Causa**: Extensão `.jfif` não estava na lista de extensões suportadas
+- **Localização**: `src/utils.py` e `scripts/add_images_to_dataset.py`
+- **Correção Implementada**:
+
+```python
+# src/utils.py - CORREÇÃO (linha 195):
+if img_path.suffix.lower() not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.jfif']:
+    continue
+
+# scripts/add_images_to_dataset.py - CORREÇÃO (linha 31):
+IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.jfif']
+```
+
+**Impacto**:  Sistema agora suporta formato `.jfif` em todos os processamentos
+
 ---
 
 # **Fase 3: Estouro de Memória - SVM**
@@ -305,8 +373,8 @@ ANTES (Problema):
 
 **Solução 3.1.1: Tamanho de Imagem Reduzido** (linha 29 em `config.py`):
 ```python
-# src/config.py - NOVA CONFIGURAÇÃO (linha 29):
-IMG_SIZE_CLASSIC = (64, 64)  # Tamanho menor para modelos clássicos (economiza memória)
+# src/config.py - CONFIGURAÇÃO ATUAL (linha 29):
+IMG_SIZE_CLASSIC = (128, 128)  # Tamanho médio para modelos clássicos (balance entre qualidade e memória)
 IMG_SIZE = (224, 224)  # Mantido para deep learning
 ```
 
@@ -316,7 +384,7 @@ IMG_SIZE = (224, 224)  # Mantido para deep learning
 X_train, y_train, self.class_names = load_images_from_directory( self.train_dir, img_size=(224, 224)  #  Muito grande
 
 # src/pipelines/classic.py - DEPOIS (linha 94-95):
-X_train, y_train, self.class_names = load_images_from_directory( self.train_dir, img_size=IMG_SIZE_CLASSIC  #  64x64
+X_train, y_train, self.class_names = load_images_from_directory( self.train_dir, img_size=IMG_SIZE_CLASSIC  #  128x128
 )
 ```
 
@@ -324,9 +392,9 @@ X_train, y_train, self.class_names = load_images_from_directory( self.train_dir,
 
 --- **Solução 3.1.2: PCA para Redução de Dimensionalidade** (linha 102-103, 154-179 em `classic.py`):
 ```python
-# src/config.py - NOVAS CONFIGURAÇÕES (linhas 102-103):
+# src/config.py - CONFIGURAÇÕES ATUALIZADAS (linhas 102-103):
 CLASSIC_USE_PCA = True  # Usar PCA para redução de dimensionalidade
-CLASSIC_PCA_COMPONENTS = 500  # Número de componentes PCA
+CLASSIC_PCA_COMPONENTS = 800  # Número de componentes PCA (aumentado para 128×128)
 ```
 
 **Implementação em classic.py (linha 154-179)**:
@@ -455,12 +523,12 @@ ANTES (Problema):
 
 **Solução 4.1.1: Configurações Específicas para ResNet50** (linhas 84-95 em `config.py`):
 ```python
-# src/config.py - NOVAS CONFIGURAÇÕES (linhas 84-95):
-# Batch sizes para Random Search do ResNet50 (REDUZIDOS)
-RESNET50_BATCH_SIZES = [8, 16, 32]  # Era [16, 32, 64] - 50% menor
+# src/config.py - CONFIGURAÇÕES ATUALIZADAS (linhas 84-95):
+# Batch sizes para Random Search do ResNet50 (REDUZIDOS para GPU 8GB)
+RESNET50_BATCH_SIZES = [4, 8]  # Reduzido de [8, 16, 32] para evitar OOM em GPU 8GB
 
 # Batch size padrão para ResNet50
-RESNET50_DEFAULT_BATCH_SIZE = 16  # Era 32 - 50% menor
+RESNET50_DEFAULT_BATCH_SIZE = 8  # Reduzido de 16 para evitar OOM
 
 # Épocas para Random Search (limitadas)
 RESNET50_SEARCH_EPOCHS = 10  # Número máximo de épocas durante Random Search
@@ -785,7 +853,28 @@ O script irá:
 
 **Nota**: Certifique-se de ter aceitado os termos do dataset no Kaggle antes de executar.
 
-#### Opção 2: Organizar Dados Manualmente
+#### Opção 2: Adicionar Imagens Externas ao Dataset
+
+Se você tem pastas com imagens que deseja adicionar ao dataset existente:
+
+```bash
+# Adicionar apenas imagens de IA
+python scripts/add_images_to_dataset.py "caminho/para/pasta_IA"
+
+# Adicionar imagens de IA e humanos
+python scripts/add_images_to_dataset.py "caminho/para/pasta_IA" "caminho/para/pasta_humanos"
+```
+
+O script irá:
+- Encontrar todas as imagens nas pastas (incluindo subpastas)
+- Mapear automaticamente para as classes corretas (`aiartdata` ou `realart`)
+- Dividir em treino/teste (70%/30%)
+- Copiar para os diretórios corretos
+- Evitar conflitos de nomes
+
+**Formatos suportados**: JPG, JPEG, PNG, BMP, GIF, JFIF
+
+#### Opção 3: Organizar Dados Manualmente
 
 Se preferir usar seus próprios dados, organize no formato: ``` data/ train/ classe1/ img1.jpg img2.jpg classe2/ img1.jpg test/ classe1/ classe2/ ```
 
@@ -811,6 +900,17 @@ python scripts/download_dataset.py
 ```
 
 O script irá baixar e organizar automaticamente o dataset do Kaggle.
+
+**Adicionar Imagens Externas ao Dataset** (Opcional):
+
+Se você tem pastas com imagens adicionais que deseja adicionar:
+
+```bash
+# Adicionar imagens de IA e humanos de pastas externas
+python scripts/add_images_to_dataset.py "caminho/para/pasta_IA" "caminho/para/pasta_humanos"
+```
+
+O script divide automaticamente em treino/teste (70%/30%) e mapeia para as classes corretas.
 
 ### Passo 2: Executar o Projeto
 
@@ -862,7 +962,7 @@ O dataset **AI Art vs Human Art** contém:
 O projeto implementa **padronização completa** de imagens para garantir consistência e qualidade dos dados:
 
 #### 1. **Tratamento de Múltiplos Formatos** 
-- Suporta automaticamente: JPG, JPEG, PNG, BMP, GIF
+- Suporta automaticamente: JPG, JPEG, PNG, BMP, GIF, **JFIF**
 - Conversão uniforme para formato interno
 - Tratamento específico para cada tipo de arquivo
 
@@ -982,10 +1082,10 @@ if use_random_search: print(f"\n Otimizando hiperparâmetros com Random Search (
 ```
 
 **Fluxo Completo**:
-1. **Define espaço de parâmetros**: Distribuições log-uniform, uniform ou listas discretas
+1. **Define espaço de parâmetros**: Distribuições log-uniform, uniform ou listas discretas (ajustado dinamicamente baseado no número de features)
 2. **Cria RandomizedSearchCV**: Com `n_iter` iterações, `cv=CLASSIC_CV_FOLDS` folds, `n_jobs=svm_n_jobs`
 3. **Executa busca**: Para cada iteração, seleciona parâmetros aleatórios e avalia com CV
-4. **Total de fits**: `n_iter × cv_folds` (ex: 50 × 2 = 100 fits)
+4. **Total de fits**: `n_iter × cv_folds` (ex: 100 × 2 = 200 fits - aumentado de 50 para 100)
 5. **Retorna melhor modelo**: `best_estimator_` com melhores hiperparâmetros encontrados
 
 **Memória Usada**:
@@ -1072,8 +1172,8 @@ def sample_hyperparameters(param_space): """ Amostra aleatoriamente hiperparâme
 
 ```python
 # src/config.py - LINHAS 84-95:
-RESNET50_BATCH_SIZES = [8, 16, 32]  #  Batch sizes reduzidos (era [16, 32, 64])
-RESNET50_DEFAULT_BATCH_SIZE = 16 #  Padrão reduzido (era 32)
+RESNET50_BATCH_SIZES = [4, 8]  #  Batch sizes reduzidos para GPU 8GB (era [8, 16, 32])
+RESNET50_DEFAULT_BATCH_SIZE = 8 #  Padrão reduzido (era 16)
 RESNET50_SEARCH_EPOCHS = 10 #  Épocas limitadas durante busca
 RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS = True  #  Limpar memória entre iterações
 ```
@@ -1093,7 +1193,7 @@ if use_random_search: print(f"\nExecutando Random Search ({n_iter} iterações).
 - **Tratamento de erros**: Recupera automaticamente de estouro de memória
 - **Batch size adaptativo**: Reduz automaticamente se necessário
 - **Verificação de memória**: Antes de carregar modelo grande
-- **Batch sizes menores**: [8, 16, 32] ao invés de [16, 32, 64]
+- **Batch sizes menores**: [4, 8] ao invés de [8, 16, 32] (otimizado para GPU 8GB)
 
 ---
 
@@ -1123,7 +1223,8 @@ if use_random_search: print(f"\nExecutando Random Search ({n_iter} iterações).
 
 **Características**:
 - Suporta `SVC` (kernels: RBF, linear, poly) ou `LinearSVC` (apenas linear)
-- Otimização: Random Search (50 iterações padrão)
+- Otimização: Random Search (100 iterações padrão - aumentado para melhor otimização)
+- Espaço de busca ajustado dinamicamente baseado no número de features
 - Parâmetros otimizados: C, gamma, kernel, degree, class_weight (SVC) ou C, loss, dual, class_weight (LinearSVC)
 - Validação cruzada: 2 folds (configurável)
 - Paralelização: 1 job (configurável para economizar memória)
@@ -1276,7 +1377,7 @@ if self.pca is not None: pca_path = MODELS_DIR / 'svm_pca.pkl' joblib.dump(self.
 
 # **3. Valores dos Parâmetros Otimizados**
 
-**SVM - SVC (Random Search - 50 iterações padrão):**
+**SVM - SVC (Random Search - 100 iterações padrão):**
 
 **Localização**: `src/pipelines/classic.py`, linhas 273-279
 
@@ -1286,9 +1387,9 @@ param_distributions = { 'C': loguniform(0.01, 100), # Regularização: 0.01 a 10
 }
 ```
 
-**Total de combinações teóricas**: Infinito (distribuições contínuas) **Combinações avaliadas**: Apenas `n_iter` (padrão: 50) aleatórias **Total de fits**: `n_iter × cv_folds` = 50 × 2 = **100 fits**
+**Total de combinações teóricas**: Infinito (distribuições contínuas) **Combinações avaliadas**: Apenas `n_iter` (padrão: 100) aleatórias **Total de fits**: `n_iter × cv_folds` = 100 × 2 = **200 fits**
 
---- **SVM - LinearSVC (Random Search - 50 iterações padrão):**
+--- **SVM - LinearSVC (Random Search - 100 iterações padrão):**
 
 **Localização**: `src/pipelines/classic.py`, linhas 264-268
 
@@ -1298,9 +1399,9 @@ param_distributions = { 'C': loguniform(0.01, 100), # Regularização: 0.01 a 10
 }
 ```
 
-**Total de combinações teóricas**: Menor que SVC **Combinações avaliadas**: Apenas `n_iter` (padrão: 50) aleatórias **Total de fits**: `n_iter × cv_folds` = 50 × 2 = **100 fits** **Benefício**:  Muito mais eficiente em memória (não calcula matriz Gram)
+**Total de combinações teóricas**: Menor que SVC **Combinações avaliadas**: Apenas `n_iter` (padrão: 100) aleatórias **Total de fits**: `n_iter × cv_folds` = 100 × 2 = **200 fits** **Benefício**:  Muito mais eficiente em memória (não calcula matriz Gram)
 
---- **Random Forest (Random Search - 50 iterações padrão):**
+--- **Random Forest (Random Search - 100 iterações padrão):**
 
 **Localização**: `src/pipelines/classic.py`, linhas 430-437
 
@@ -1310,7 +1411,7 @@ param_distributions = { 'n_estimators': randint(50, 300), # Número de árvores:
 }
 ```
 
-**Total de combinações teóricas**: Muito grande (produto de todos os espaços) **Combinações avaliadas**: Apenas `n_iter` (padrão: 50) aleatórias **Total de fits**: `n_iter × cv_folds` = 50 × 2 = **100 fits**
+**Total de combinações teóricas**: Muito grande (produto de todos os espaços) **Combinações avaliadas**: Apenas `n_iter` (padrão: 100) aleatórias **Total de fits**: `n_iter × cv_folds` = 100 × 2 = **200 fits**
 
 ### Métricas Utilizadas
 
@@ -1485,7 +1586,7 @@ search_epochs = min(15, final_epochs)  #  Épocas limitadas durante busca (máxi
 
 ```python
 # src/pipelines/deep_learning.py - LINHAS 1100-1104:
-param_space = { 'learning_rate': (0.00001, 0.001), #  Log-uniform (menor para transfer learning) 'batch_size': RESNET50_BATCH_SIZES,  #  [8, 16, 32] (reduzido de [16, 32, 64]) 'unfreeze_layers': [0, 1, 2] #  Quantidade de camadas a descongelar
+param_space = { 'learning_rate': (0.00001, 0.001), #  Log-uniform (menor para transfer learning) 'batch_size': RESNET50_BATCH_SIZES,  #  [4, 8] (reduzido para GPU 8GB) 'unfreeze_layers': [0, 1, 2] #  Quantidade de camadas a descongelar
 }
 
 best_val_acc = 0.0
@@ -1515,11 +1616,15 @@ USE_GPU = False  # Força uso de CPU
 
 ## Apresentação e Discussão dos Resultados
 
+> 📊 **Histórico Completo**: Para ver **todos os resultados de execução** com data/hora completa, configurações detalhadas e evolução das métricas, consulte o arquivo [`TRAINING_HISTORY.md`](TRAINING_HISTORY.md).
+
 ### Tabela de Resultados do Último Treinamento
 
 Os resultados são salvos automaticamente em:
 - `outputs/results/classic_pipeline_results.csv`
 - `outputs/results/deep_learning_results.csv`
+- `TRAINING_HISTORY.md` - Histórico completo de todas as execuções com data/hora
+- `TRAINING_HISTORY.md` - Histórico completo de todas as execuções com data/hora
 
 #### Pipeline Clássico (Último Treinamento)
 
@@ -1534,7 +1639,7 @@ Os resultados são salvos automaticamente em:
 - Ambos modelos treinados no mesmo dia (10/01/2026), com intervalo de ~31 segundos entre eles
 - SVM apresentou melhor performance (68.15% accuracy) comparado ao Random Forest (63.01%)
 - Ambos modelos treinados com PCA (500 componentes) para redução de dimensionalidade
-- Imagens redimensionadas para 64x64 pixels (economia de memória)
+- Imagens redimensionadas para 128×128 pixels (balance entre qualidade e memória)
 - Random Search com 50 iterações e 2 CV folds (otimizado para memória)
 - Tempo total muito rápido (< 1 minuto para ambos modelos)
 
@@ -1794,15 +1899,16 @@ IMG_SIZE = (224, 224)  # Tamanho padrão para modelos de deep learning
 
 # **`IMG_SIZE_CLASSIC`** (linha 29)
 ```python
-IMG_SIZE_CLASSIC = (64, 64)  # Tamanho menor para modelos clássicos (economiza memória)
+IMG_SIZE_CLASSIC = (128, 128)  # Tamanho médio para modelos clássicos (balance entre qualidade e memória)
 ```
 
-**Descrição**: Tamanho das imagens para modelos clássicos (SVM, Random Forest). **Valores**: Tupla `(altura, largura)` em pixels **Padrão**: `(64, 64)` - **OTIMIZADO para economizar memória** **Quando alterar**: 
-- Se tiver muito RAM: Pode aumentar para `(128, 128)` ou `(96, 96)`
-- Se estiver com pouco RAM: Manter `(64, 64)` ou reduzir para `(32, 32)`
+**Descrição**: Tamanho das imagens para modelos clássicos (SVM, Random Forest). **Valores**: Tupla `(altura, largura)` em pixels **Padrão**: `(128, 128)` - **BALANCE entre qualidade e memória** **Quando alterar**: 
+- Se tiver muito RAM: Pode aumentar para `(160, 160)` ou `(192, 192)`
+- Se estiver com pouco RAM: Reduzir para `(64, 64)` ou `(32, 32)`
 
 **Impacto na memória**: 
 - `(224, 224)`: 150,528 features por imagem
+- `(128, 128)`: 49,152 features por imagem (**67% redução**)
 - `(64, 64)`: 12,288 features por imagem (**92% redução!**)
 
 **Uso**: Aplicado apenas em `src/pipelines/classic.py`
@@ -1953,12 +2059,13 @@ CLEAR_MEMORY_EVERY_N_BATCHES = 50
 
 #### **`RESNET50_BATCH_SIZES`** (linha 86)
 ```python
-RESNET50_BATCH_SIZES = [8, 16, 32]  # Reduzido de [16, 32, 64]
+RESNET50_BATCH_SIZES = [4, 8]  # Reduzido para evitar OOM em GPU 8GB
 ```
 
-**Descrição**: Batch sizes testados durante Random Search do ResNet50. **Valores**: Lista de inteiros positivos **Padrão**: `[8, 16, 32]` (otimizado para evitar estouro de memória) **Quando alterar**: 
-- **GPU com muita memória (16GB+)**: Pode aumentar para `[16, 32, 64]`
-- **GPU com pouca memória (4-6GB)**: Reduzir para `[4, 8, 16]`
+**Descrição**: Batch sizes testados durante Random Search do ResNet50. **Valores**: Lista de inteiros positivos **Padrão**: `[4, 8]` (otimizado para GPU 8GB - RTX 3050) **Quando alterar**: 
+- **GPU com muita memória (16GB+)**: Pode aumentar para `[8, 16, 32]`
+- **GPU com pouca memória (4-6GB)**: Reduzir para `[2, 4]` ou apenas `[4]`
+- **GPU 8GB (RTX 3050, RTX 3060)**: Manter `[4, 8]` (recomendado)
 
 **Impacto**: Batch sizes menores = menos memória, mas Random Search mais lento
 
@@ -1966,10 +2073,13 @@ RESNET50_BATCH_SIZES = [8, 16, 32]  # Reduzido de [16, 32, 64]
 
 # **`RESNET50_DEFAULT_BATCH_SIZE`** (linha 89)
 ```python
-RESNET50_DEFAULT_BATCH_SIZE = 16  # Reduzido de 32
+RESNET50_DEFAULT_BATCH_SIZE = 8  # Reduzido para evitar OOM em GPU 8GB
 ```
 
-**Descrição**: Batch size padrão para treinamento final do ResNet50 (quando não usar Random Search). **Valores**: Inteiro positivo **Padrão**: `16` (otimizado) **Quando alterar**: Baseado na memória disponível (mesmas recomendações de `BATCH_SIZE`)
+**Descrição**: Batch size padrão para treinamento final do ResNet50 (quando não usar Random Search). **Valores**: Inteiro positivo **Padrão**: `8` (otimizado para GPU 8GB) **Quando alterar**: 
+- **GPU 16GB+**: Pode aumentar para `16` ou `32`
+- **GPU 8GB**: Manter `8` (recomendado)
+- **GPU 4-6GB**: Reduzir para `4`
 
 ---
 
@@ -2016,10 +2126,10 @@ CLASSIC_USE_PCA = True  # Usar PCA para redução de dimensionalidade
 
 # **`CLASSIC_PCA_COMPONENTS`** (linha 103)
 ```python
-CLASSIC_PCA_COMPONENTS = 500  # Número de componentes PCA
+CLASSIC_PCA_COMPONENTS = 800  # Número de componentes PCA (aumentado para 128×128)
 ```
 
-**Descrição**: Número de componentes principais do PCA. **Valores**: Inteiro positivo ou `None` (auto = 95% variância) **Padrão**: `500` (otimizado para balancear memória e qualidade) **Quando alterar**: 
+**Descrição**: Número de componentes principais do PCA. **Valores**: Inteiro positivo ou `None` (auto = 95% variância) **Padrão**: `800` (otimizado para imagens 128×128, melhor preservação de informação) **Quando alterar**: 
 - **Mais memória disponível**: Aumentar para `1000` ou `1500` (mais features, mais tempo)
 - **Muito pouca RAM**: Reduzir para `250` ou `300` (menos features, menos qualidade)
 - **Auto (95% variância)**: `None` (PCA decide número automaticamente)
@@ -2139,12 +2249,12 @@ FIGURES_DIR = OUTPUT_DIR / 'figures'
 
 **Para economizar memória (problemas de estouro)**:
 1.  `CLASSIC_USE_PCA = True` (essencial!)
-2.  `CLASSIC_PCA_COMPONENTS = 500` (ou menor)
+2.  `CLASSIC_PCA_COMPONENTS = 800` (otimizado para 128×128, ou menor se necessário)
 3.  `CLASSIC_SVM_N_JOBS = 1` (sem paralelização)
 4.  `CLASSIC_CV_FOLDS = 2` (menos folds)
-5.  `RESNET50_BATCH_SIZES = [8, 16, 32]` (ou menor)
+5.  `RESNET50_BATCH_SIZES = [4, 8]` (reduzido para GPU 8GB)
 6.  `RESNET50_CLEAR_MEMORY_BETWEEN_ITERATIONS = True` (essencial!)
-7.  `IMG_SIZE_CLASSIC = (64, 64)` (não aumentar!)
+7.  `IMG_SIZE_CLASSIC = (128, 128)` (otimizado para modelos clássicos)
 
 **Para acelerar treinamento (mais recursos disponíveis)**:
 1.  `USE_GPU = True` (essencial para deep learning)
@@ -2252,7 +2362,7 @@ USE_GPU = True
 CLASSIC_USE_PCA = True
 CLASSIC_PCA_COMPONENTS = 500
 CLASSIC_CV_FOLDS = 2
-RESNET50_BATCH_SIZES = [8, 16, 32]
+RESNET50_BATCH_SIZES = [4, 8]
 ```
 
 ---
@@ -2642,6 +2752,7 @@ Probabilidades por classe:
 - PNG
 - BMP
 - GIF
+- **JFIF** (novo na versão 1.0.3)
 
 ### Tratamento Automático
 
@@ -2833,8 +2944,8 @@ RuntimeError: CUDA out of memory. Tried to allocate X.XX GiB. GPU allocated memo
 **Solução 4.1: Reduzir batch size (ResNet50)**
 ```python
 # Em src/config.py
-RESNET50_BATCH_SIZES = [4, 8, 16]  # Era [8, 16, 32]
-RESNET50_DEFAULT_BATCH_SIZE = 8 # Era 16
+RESNET50_BATCH_SIZES = [4, 8]  # Reduzido para GPU 8GB (era [8, 16, 32])
+RESNET50_DEFAULT_BATCH_SIZE = 8 # Reduzido (era 16)
 ```
 
 **Solução 4.2: Reduzir batch size (CNN simples)**
@@ -2978,6 +3089,39 @@ print(f"CUDA device: {torch.cuda.get_device_name(0)}")
  GPU disponível: NVIDIA GeForce RTX 3060
  SimpleCNN está na GPU: NVIDIA GeForce RTX 3060
 ```
+
+---
+
+### Problema 14: Loss NaN Durante Treinamento
+
+**Sintoma**: 
+- Loss aparece como `nan` ou `inf` durante treinamento
+- Treinamento continua mas métricas não melhoram
+
+**Causa**: Gradientes explodindo devido a learning rate muito alto.
+
+**Soluções**:
+
+**Solução 14.1: Gradient Clipping (Já Implementado)**
+- O código já implementa gradient clipping automaticamente
+- Se ainda ocorrer, verifique se está usando a versão mais recente
+
+**Solução 14.2: Reduzir Learning Rate no Random Search**
+- Edite o espaço de busca em `src/pipelines/deep_learning.py`:
+```python
+# Para CNN Simples (linha 831):
+'learning_rate': (0.00001, 0.005),  # Reduzido de (0.0001, 0.01)
+```
+
+**Solução 14.3: Verificar Learning Rate dos Melhores Parâmetros**
+- Se o melhor learning rate encontrado for muito alto (> 0.01), reduza manualmente
+
+**Status**:  **CORRIGIDO** - Gradient clipping e verificação de NaN implementados em `src/pipelines/deep_learning.py` (linhas 709, 715).
+
+**Prevenção**: 
+- Gradient clipping está ativo por padrão
+- Sistema pula batches problemáticos automaticamente
+- Verifica NaN antes de acumular loss
 
 ---
 

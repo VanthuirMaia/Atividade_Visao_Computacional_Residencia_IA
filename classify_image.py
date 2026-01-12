@@ -88,8 +88,8 @@ if MISSING_DEPS:
     print("="*80)
     print("\nAs seguintes dependências são necessárias mas não estão instaladas:\n")
     for dep in MISSING_DEPS:
-        print(f"  ❌ {dep}")
-    print("\n💡 SOLUÇÃO: Instale todas as dependências executando:")
+        print(f"   {dep}")
+    print("\n SOLUÇÃO: Instale todas as dependências executando:")
     print("   pip install -r requirements.txt")
     print("\n   Ou instale manualmente:")
     for dep in MISSING_DEPS:
@@ -536,15 +536,15 @@ def classify_with_all_models(image_path):
             # Erros comuns e suas soluções
             if 'ModuleNotFoundError' in error_type or 'ImportError' in error_type:
                 if 'joblib' in error_msg.lower():
-                    print(f"  ⚠️  {model_name.upper()} pulado: joblib não instalado (pip install joblib)")
+                    print(f"    {model_name.upper()} pulado: joblib não instalado (pip install joblib)")
                 elif 'cv2' in error_msg.lower() or 'opencv' in error_msg.lower():
-                    print(f"  ⚠️  {model_name.upper()} pulado: opencv-python não instalado (pip install opencv-python)")
+                    print(f"    {model_name.upper()} pulado: opencv-python não instalado (pip install opencv-python)")
                 else:
-                    print(f"  ⚠️  {model_name.upper()} pulado: {error_type} - {error_msg[:100]}")
+                    print(f"    {model_name.upper()} pulado: {error_type} - {error_msg[:100]}")
             elif 'FileNotFoundError' in error_type:
-                print(f"  ⚠️  {model_name.upper()} pulado: Arquivo auxiliar não encontrado - {error_msg[:100]}")
+                print(f"    {model_name.upper()} pulado: Arquivo auxiliar não encontrado - {error_msg[:100]}")
             else:
-                print(f"  ⚠️  {model_name.upper()} pulado: {error_type} - {error_msg[:100]}")
+                print(f"    {model_name.upper()} pulado: {error_type} - {error_msg[:100]}")
             continue  # Pular modelos com erro
     
     if not results:
@@ -561,15 +561,15 @@ def classify_with_all_models(image_path):
         error_msg = "Nenhum modelo disponível para classificação!\n\n"
         
         if model_files_exist:
-            error_msg += f"📁 Modelos encontrados no disco: {', '.join(model_files_exist)}\n"
-            error_msg += "❌ Mas nenhum pôde ser carregado devido a erros.\n\n"
-            error_msg += "💡 Soluções possíveis:\n"
+            error_msg += f" Modelos encontrados no disco: {', '.join(model_files_exist)}\n"
+            error_msg += " Mas nenhum pôde ser carregado devido a erros.\n\n"
+            error_msg += " Soluções possíveis:\n"
             error_msg += "   1. Instale dependências: pip install -r requirements.txt\n"
             error_msg += "   2. Execute diagnóstico: python diagnose_classification.py\n"
-            error_msg += "   3. Verifique erros acima (⚠️) para detalhes específicos\n"
+            error_msg += "   3. Verifique erros acima para detalhes específicos\n"
         else:
-            error_msg += "❌ Nenhum modelo encontrado no diretório!\n"
-            error_msg += "   Execute o pipeline de treinamento primeiro: python main.py\n"
+            error_msg += " Nenhum modelo encontrado no diretório!\n"
+            error_msg += " Execute o pipeline de treinamento primeiro: python main.py\n"
         
         raise FileNotFoundError(error_msg)
     
@@ -670,7 +670,7 @@ def print_all_models_results(final_prediction, final_confidence, results):
     
     for model_name, result in results.items():
         pred_display = class_translations.get(result['predicted_class'], result['predicted_class'])
-        match_icon = "✅" if result['predicted_class'] == final_prediction else "❌"
+        match_icon = "V" if result['predicted_class'] == final_prediction else "X"
         
         print(f"{match_icon} {result['model_name']:<20} → {pred_display:<25} "
               f"(Conf: {result['confidence']:.1%}, Acurácia: {result['accuracy']:.1%})")
@@ -694,7 +694,7 @@ def select_image_file():
         Path ou None: Caminho da imagem selecionada ou None se cancelado
     """
     if not TKINTER_AVAILABLE:
-        print("⚠️  AVISO: tkinter não está disponível.")
+        print("  AVISO: tkinter não está disponível.")
         print("   Instale tkinter ou forneça o caminho da imagem como argumento.")
         print("   Exemplo: python classify_image.py caminho/para/imagem.jpg")
         return None
@@ -725,7 +725,7 @@ def select_image_file():
         
         return Path(file_path)
     except Exception as e:
-        print(f"⚠️  ERRO ao abrir seletor de arquivo: {e}")
+        print(f"  ERRO ao abrir seletor de arquivo: {e}")
         print("   Por favor, forneça o caminho da imagem como argumento.")
         return None
 
@@ -777,29 +777,29 @@ Exemplos:
     # Obter caminho da imagem
     if args.gui or args.image_path is None:
         if not TKINTER_AVAILABLE:
-            print("❌ ERRO: tkinter não está disponível e nenhum caminho de imagem foi fornecido.")
-            print("\n💡 Soluções:")
+            print(" ERRO: tkinter não está disponível e nenhum caminho de imagem foi fornecido.")
+            print("\n Soluções:")
             print("   1. Instale tkinter (geralmente vem com Python)")
             print("   2. Ou forneça o caminho da imagem como argumento:")
             print("      python classify_image.py caminho/para/imagem.jpg")
             sys.exit(1)
         
         # Abrir interface gráfica para selecionar imagem
-        print("📁 Abrindo seletor de arquivo...")
+        print(" Abrindo seletor de arquivo...")
         image_path = select_image_file()
         
         if image_path is None:
-            print("❌ Nenhuma imagem selecionada. Operação cancelada.")
+            print(" Nenhuma imagem selecionada. Operação cancelada.")
             sys.exit(0)
         
-        print(f"✅ Imagem selecionada: {image_path}")
+        print(f" Imagem selecionada: {image_path}")
     else:
         # Usar caminho fornecido
         image_path = Path(args.image_path)
     
     # Verificar se a imagem existe
     if not image_path.exists():
-        print(f"❌ ERRO: Imagem não encontrada: {image_path}")
+        print(f" ERRO: Imagem não encontrada: {image_path}")
         sys.exit(1)
     
     try:
@@ -822,12 +822,12 @@ Exemplos:
             print_results(predicted_class, confidence, class_names, prob_dict, metadata, args.model)
         
     except FileNotFoundError as e:
-        print(f"\n❌ ERRO: {e}")
-        print("\n💡 Dica: Execute o pipeline de treinamento primeiro:")
+        print(f"\n ERRO: {e}")
+        print("\n Dica: Execute o pipeline de treinamento primeiro:")
         print("  python main.py")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ ERRO ao classificar imagem: {type(e).__name__}: {e}")
+        print(f"\n ERRO ao classificar imagem: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

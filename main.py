@@ -119,8 +119,8 @@ def run_classic_pipeline(train_dir=None, test_dir=None):
     
     pipeline = ClassicPipeline(train_dir, test_dir)
     pipeline.load_data()
-    pipeline.train_svm(use_random_search=True, n_iter=50)
-    pipeline.train_random_forest(use_random_search=True, n_iter=50)
+    pipeline.train_svm(use_random_search=True, n_iter=100)  # Aumentado de 50 para 100
+    pipeline.train_random_forest(use_random_search=True, n_iter=100)  # Aumentado de 50 para 100
     pipeline.save_results()
 
     print("\nPipeline clássico concluído!")
