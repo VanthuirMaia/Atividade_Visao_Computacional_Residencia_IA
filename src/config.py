@@ -26,7 +26,7 @@ TEST_SPLIT = 0.3   # Proporção de dados para teste
 
 # Tamanho das imagens
 IMG_SIZE = (128, 128)  # Tamanho padrão para modelos de deep learning
-IMG_SIZE_CLASSIC = (128, 128)  # Tamanho otimizado para modelos clássicos (balance entre qualidade e memória)
+IMG_SIZE_CLASSIC = (224, 224)  # Tamanho otimizado para modelos clássicos (balance entre qualidade e memória)
 # Nota: 128×128 = 49,152 features (otimizado)
 #       224×224 = 150,528 features (muito grande, desperdiça memória)
 #       64×64 = 12,288 features (pode perder detalhes importantes)

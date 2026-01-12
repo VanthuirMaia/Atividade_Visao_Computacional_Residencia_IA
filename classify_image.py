@@ -267,6 +267,13 @@ def load_classic_model(model_name):
     if pca_path.exists():
         pca = joblib.load(pca_path)
         print(f"  PCA carregado: {pca.n_components} componentes")
+    elif model_name == 'random_forest':
+        # Random Forest pode usar o PCA do SVM se existir (modelos compartilham mesmo pré-processamento)
+        svm_pca_path = MODELS_DIR / 'svm_pca.pkl'
+        if svm_pca_path.exists():
+            print(f"  [INFO] Usando PCA do SVM para Random Forest (modelos compartilham mesmo pré-processamento)")
+            pca = joblib.load(svm_pca_path)
+            print(f"  PCA carregado: {pca.n_components} componentes")
     
     return model, scaler, pca, metadata
 
