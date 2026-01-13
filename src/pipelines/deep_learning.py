@@ -137,17 +137,17 @@ class DeepLearningPipeline:
         
         # Garantir que device é torch.device
         if isinstance(self.device, str):
-            print(f"   ⚠️  Dispositivo é string '{self.device}', convertendo para torch.device...")
+            print(f"     Dispositivo é string '{self.device}', convertendo para torch.device...")
             self.device = torch.device(self.device)
-            print(f"   ✅ Convertido para: {self.device}")
+            print(f"    Convertido para: {self.device}")
         elif not isinstance(self.device, torch.device):
-            print(f"   ⚠️  Tipo de dispositivo desconhecido: {type(self.device)}")
+            print(f"     Tipo de dispositivo desconhecido: {type(self.device)}")
             print(f"   Tentando converter para torch.device...")
             try:
                 self.device = torch.device(str(self.device))
-                print(f"   ✅ Convertido para: {self.device}")
+                print(f"    Convertido para: {self.device}")
             except:
-                print(f"   ⚠️  Erro na conversão, usando CPU como fallback...")
+                print(f"     Erro na conversão, usando CPU como fallback...")
                 self.device = torch.device('cpu')
                 print(f"   Dispositivo definido para: {self.device}")
         
@@ -157,24 +157,24 @@ class DeepLearningPipeline:
                 try:
                     gpu_name = torch.cuda.get_device_name(self.device.index or 0)
                     gpu_mem = torch.cuda.memory_allocated(self.device.index or 0) / (1024**2)
-                    print(f"   ✅ DISPOSITIVO CONFIRMADO: GPU - {gpu_name}")
+                    print(f"    DISPOSITIVO CONFIRMADO: GPU - {gpu_name}")
                     print(f"      Device object: {self.device}")
                     print(f"      GPU ativa: {torch.cuda.is_available()}")
                     print(f"      GPU atual: {torch.cuda.current_device()}")
                     print(f"      Memória alocada: {gpu_mem:.2f} MB")
                 except Exception as e:
-                    print(f"   ⚠️  Erro ao obter informações da GPU: {e}")
+                    print(f"     Erro ao obter informações da GPU: {e}")
                     print(f"      Device: {self.device}")
                     # Tentar forçar uso de GPU se CUDA está disponível
                     if torch.cuda.is_available():
-                        print(f"      ⚠️  AVISO: CUDA disponível mas erro ao acessar GPU específica")
+                        print(f"        AVISO: CUDA disponível mas erro ao acessar GPU específica")
                         print(f"      Tentando usar cuda:0 diretamente...")
                         self.device = torch.device('cuda:0')
-                        print(f"      ✅ Dispositivo forçado para: {self.device}")
+                        print(f"       Dispositivo forçado para: {self.device}")
             else:
-                print(f"   ℹ️  DISPOSITIVO INICIAL: CPU ({self.device})")
+                print(f"     DISPOSITIVO INICIAL: CPU ({self.device})")
                 if use_gpu and torch.cuda.is_available():
-                    print(f"   ⚠️  ATENÇÃO: GPU foi solicitada e está disponível, mas dispositivo retornado foi CPU!")
+                    print(f"     ATENÇÃO: GPU foi solicitada e está disponível, mas dispositivo retornado foi CPU!")
                     print(f"      Forçando uso de GPU (CUDA disponível)...")
                     try:
                         # SEMPRE forçar GPU se CUDA está disponível
@@ -184,17 +184,17 @@ class DeepLearningPipeline:
                         del test_tensor
                         torch.cuda.empty_cache()
                         gpu_name = torch.cuda.get_device_name(0)
-                        print(f"      ✅ GPU FORÇADA COM SUCESSO!")
+                        print(f"       GPU FORÇADA COM SUCESSO!")
                         print(f"      Dispositivo: {self.device}")
                         print(f"      GPU: {gpu_name}")
                     except Exception as e:
-                        print(f"      ⚠️  Erro ao forçar GPU: {e}")
+                        print(f"        Erro ao forçar GPU: {e}")
                         print(f"      Tentando continuar mesmo assim...")
                         # Tentar usar GPU mesmo com erro
                         self.device = torch.device('cuda:0')
                         print(f"      Dispositivo definido para: {self.device}")
                 else:
-                    print(f"   ℹ️  DISPOSITIVO CONFIRMADO: CPU ({self.device})")
+                    print(f"     DISPOSITIVO CONFIRMADO: CPU ({self.device})")
         
         print(f"   {'='*60}\n")
 
@@ -713,7 +713,7 @@ class DeepLearningPipeline:
                     # Verificar se loss é NaN antes de acumular
                     loss_value = loss.item()
                     if not np.isfinite(loss_value):
-                        print(f"\n   ⚠️  AVISO: Loss NaN ou Inf detectado na época {epoch+1}, batch {batch_idx+1}!")
+                        print(f"\n     AVISO: Loss NaN ou Inf detectado na época {epoch+1}, batch {batch_idx+1}!")
                         print(f"      Learning rate: {learning_rate:.6f}")
                         print(f"      Pulando este batch...")
                         continue
@@ -879,7 +879,7 @@ class DeepLearningPipeline:
                     model_device = next(model.parameters()).device
                     print(f"     Modelo SimpleCNN criado e movido para: {model_device}")
                     if model_device.type == 'cuda':
-                        print(f"     ✅ SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
+                        print(f"      SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
 
                 val_acc, _, iter_time = self.train_single_config(
                     model, train_loader, val_loader, search_epochs,
@@ -924,9 +924,9 @@ class DeepLearningPipeline:
         print(f"  Parâmetros: {total_params:,}")
         print(f"  Dispositivo: {model_device}")
         if model_device.type == 'cuda':
-            print(f"  ✅ SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
+            print(f"  SimpleCNN está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
         else:
-            print(f"  ℹ️  SimpleCNN está na CPU")
+            print(f"    SimpleCNN está na CPU")
 
         # Criar dataloaders finais (suporta tanto lazy quanto padrão)
         final_train_loader, _, final_test_loader = self.create_dataloaders(
@@ -1078,9 +1078,9 @@ class DeepLearningPipeline:
         print(f"   ResNet50 carregado: {total_params:,} parâmetros total, {trainable_params:,} treináveis")
         print(f"   Modelo movido para: {model_device}")
         if model_device.type == 'cuda':
-            print(f"   ✅ ResNet50 está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
+            print(f"   ResNet50 está na GPU: {torch.cuda.get_device_name(model_device.index or 0)}")
         else:
-            print(f"   ℹ️  ResNet50 está na CPU")
+            print(f"    ResNet50 está na CPU")
 
         return model
 
@@ -1152,10 +1152,10 @@ class DeepLearningPipeline:
                     if model_device.type == 'cuda':
                         gpu_name = torch.cuda.get_device_name(model_device.index or 0)
                         gpu_mem = torch.cuda.memory_allocated(model_device.index or 0) / (1024**2)
-                        print(f"       ✅ ResNet50 está na GPU: {gpu_name}")
+                        print(f"        ResNet50 está na GPU: {gpu_name}")
                         print(f"       Memória GPU alocada: {gpu_mem:.2f} MB")
                     else:
-                        print(f"       ℹ️  ResNet50 está na CPU")
+                        print(f"         ResNet50 está na CPU")
 
                 try:
                     val_acc, trained_model, iter_time = self.train_single_config(
